@@ -1,0 +1,27 @@
+# ── personal / runtime data (created on first run, never ship) ──
+backend/data/
+.valtix/
+*.log
+
+# ── build artifacts ────────────────────────────────────────────
+build/
+dist/
+*.spec.bak
+
+# ── python ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ── local dev artifacts ────────────────────────────────────────
+tests/*.png
+tools/patch_*.py
+
+# ── OS / editor ────────────────────────────────────────────────
+.env
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

@@ -1,0 +1,715 @@
+from __future__ import annotations
+
+import base64
+import json
+import os
+import threading
+import time
+from datetime import datetime, timezone
+
+import requests
+import urllib3
+
+import sample_data
+from agents import UUID_TO_NAME
+from vconstants import GAMEMODES, map_name_from_path
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+_SESSIONS: list["requests.Session"] = []
+_SESSIONS_LOCK = threading.Lock()
+
+def _borrow_session() -> "requests.Session":
+    with _SESSIONS_LOCK:
+        if _SESSIONS:
+            return _SESSIONS.pop()
+    s = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(pool_connections=2, pool_maxsize=2)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return s
+
+def _reclaim_session(s: "requests.Session") -> None:
+    with _SESSIONS_LOCK:
+        if len(_SESSIONS) < 16:
+            _SESSIONS.append(s)
+
+def pooled_request(method: str, url: str, **kw):
+    s = _borrow_session()
+    try:
+        return s.request(method, url, **kw)
+    finally:
+        _reclaim_session(s)
+
+
+def _loopback(port, endpoint: str, headers: dict) -> dict:
+    resp = pooled_request("GET", f"https://127.0.0.1:{port}{endpoint}",
+                          headers=headers, verify=False, timeout=5)
+    try:
+        return resp.json()
+    except ValueError:
+        return {}
+
+_CLIENT_VERSION: str | None = None
+
+_ROUTING = {
+    "na": "americas", "latam": "americas", "br": "americas",
+    "eu": "europe", "ap": "asia", "kr": "asia",
+}
+
+REGION_MAP = {
+    "na":    ("na",    "na-1", "na"),
+    "eu":    ("eu",    "eu-1", "eu"),
+    "ap":    ("ap",    "ap-1", "ap"),
+    "kr":    ("kr",    "kr-1", "kr"),
+    "latam": ("na",    "latam-1", "na"),
+    "br":    ("na",    "br-1",    "na"),
+}
+REGIONS = ["na", "eu", "ap", "kr", "latam", "br"]
+
+_QUEUE_NAMES = {
+    "competitive": "Competitive", "unrated": "Unrated", "swiftplay": "Swiftplay",
+    "spikerush": "Spike Rush", "deathmatch": "Deathmatch", "ggteam": "Escalation",
+    "hurm": "Team Deathmatch", "": "Custom",
+}
+
+def _log(msg: str) -> None:
+    if os.getenv("VALTIX_QUIET"):
+        return
+    print(f"[riot_client] {msg}", flush=True)
+
+_RIOT_RATE_LOCK = threading.Lock()
+try:
+
+    _RIOT_MAX_RPS = max(0.0, float(os.getenv("RIOT_MAX_RPS", "10")))
+except ValueError:
+    _RIOT_MAX_RPS = 10.0
+_RIOT_BURST = _RIOT_MAX_RPS if _RIOT_MAX_RPS > 0 else 1.0
+_RIOT_BUCKET = {"tokens": _RIOT_BURST, "at": 0.0}
+
+_MMR_BURST = 24.0
+_MMR_RPS = 0.4
+_MMR_BUCKET = {"tokens": _MMR_BURST, "at": 0.0}
+
+_HOLD_UNTIL = {"mmr": 0.0, "other": 0.0}
+
+_GLZ_BUCKET = {"tokens": _RIOT_BURST, "at": 0.0}
+
+def _family(endpoint: str) -> str:
+    return "mmr" if endpoint.startswith("/mmr/") else "other"
+
+def held_secs(endpoint: str) -> float:
+    with _RIOT_RATE_LOCK:
+        return max(0.0, _HOLD_UNTIL[_family(endpoint)] - time.time())
+
+def _set_hold(endpoint: str, seconds: float) -> None:
+    fam = _family(endpoint)
+    with _RIOT_RATE_LOCK:
+        _HOLD_UNTIL[fam] = max(_HOLD_UNTIL[fam], time.time() + seconds)
+
+def _take_token(bucket: dict, burst: float, rps: float) -> None:
+    while True:
+        with _RIOT_RATE_LOCK:
+            now = time.time()
+            if bucket["at"] == 0.0:
+                bucket["at"] = now
+            bucket["tokens"] = min(burst, bucket["tokens"] + (now - bucket["at"]) * rps)
+            bucket["at"] = now
+            if bucket["tokens"] >= 1.0:
+                bucket["tokens"] -= 1.0
+                return
+            wait = (1.0 - bucket["tokens"]) / rps
+        time.sleep(wait)
+
+def _riot_throttle(endpoint: str = "", glz: bool = False) -> None:
+    if _RIOT_MAX_RPS <= 0:
+        return
+    if glz:
+        _take_token(_GLZ_BUCKET, _RIOT_BURST, _RIOT_MAX_RPS)
+        return
+    while True:
+        wait = held_secs(endpoint)
+        if wait <= 0:
+            break
+        time.sleep(wait)
+    if _family(endpoint) == "mmr":
+        _take_token(_MMR_BUCKET, _MMR_BURST, _MMR_RPS)
+    _take_token(_RIOT_BUCKET, _RIOT_BURST, _RIOT_MAX_RPS)
+
+class ClientNotReady(Exception):
+    pass
+
+
+def _pid_exists(pid: int) -> bool:
+    if os.name != "nt":
+        return True
+    import ctypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    h = k32.OpenProcess(0x1000, False, pid)
+    if not h:
+        return ctypes.get_last_error() != 87
+    try:
+        code = ctypes.c_ulong()
+        return not k32.GetExitCodeProcess(h, ctypes.byref(code)) or code.value == 259
+    finally:
+        k32.CloseHandle(h)
+
+
+class LocalAuth:
+    pass
+
+    def __init__(self, region: str | None = None):
+        self.lockfile = self._get_lockfile()
+
+        region = (region or "").strip().lower()
+        if region in REGION_MAP:
+            shard, ga, gb = REGION_MAP[region]
+            self.region = [shard, [ga, gb]]
+        else:
+            self.region = self._get_region()
+        self.pd_url = f"https://pd.{self.region[0]}.a.pvp.net"
+        self.glz_url = f"https://glz-{self.region[1][0]}.{self.region[1][1]}.a.pvp.net"
+        self.shard = self.region[0]
+        self._headers: dict | None = None
+        self.puuid = ""
+        self.req_count = 0
+
+    @staticmethod
+    def available() -> bool:
+        path = os.path.join(os.getenv("LOCALAPPDATA", ""),
+                            r"Riot Games\Riot Client\Config\lockfile")
+        if not os.path.isfile(path):
+            return False
+        try:
+            with open(path, encoding="utf-8") as f:
+                pid = int(f.read().split(":")[1])
+        except (OSError, ValueError, IndexError):
+            return True
+        return _pid_exists(pid)
+
+    def _get_lockfile(self) -> dict:
+        path = os.path.join(os.getenv("LOCALAPPDATA", ""),
+                            r"Riot Games\Riot Client\Config\lockfile")
+        with open(path, encoding="utf-8") as f:
+            keys = ["name", "PID", "port", "password", "protocol"]
+            return dict(zip(keys, f.read().split(":")))
+
+    def _get_region(self):
+        path = os.path.join(os.getenv("LOCALAPPDATA", ""),
+                            r"VALORANT\Saved\Logs\ShooterGame.log")
+        pd_url = glz_url = None
+        with open(path, "r", encoding="utf8") as f:
+            for line in f:
+                if ".a.pvp.net/account-xp/v1/" in line:
+                    pd_url = line.split(".a.pvp.net/account-xp/v1/")[0].split(".")[-1]
+                elif "https://glz" in line:
+                    glz_url = [line.split("https://glz-")[1].split(".")[0],
+                               line.split("https://glz-")[1].split(".")[1]]
+                if pd_url and glz_url:
+                    if pd_url == "pbe":
+                        return ["na", ["na-1", "na"]]
+                    return [pd_url, glz_url]
+        raise RuntimeError("could not parse region from ShooterGame.log")
+
+    def _client_version(self) -> str:
+        pass
+        global _CLIENT_VERSION
+        if _CLIENT_VERSION:
+            return _CLIENT_VERSION
+        try:
+            local = {"Authorization": "Basic " + base64.b64encode(
+                ("riot:" + self.lockfile["password"]).encode()).decode()}
+            data = _loopback(self.lockfile['port'], "/chat/v4/presences", local)
+            for pr in (data or {}).get("presences", []) or []:
+                if pr.get("product") != "valorant" or not pr.get("private"):
+                    continue
+                try:
+                    priv = json.loads(base64.b64decode(str(pr["private"])).decode("utf-8"))
+                except Exception:
+                    continue
+                v = (priv.get("partyPresenceData") or {}).get("partyClientVersion")                    or priv.get("partyClientVersion")
+                if v and v != "unknown":
+                    _CLIENT_VERSION = v
+                    _log(f"client version (local presence): {v}")
+                    return v
+        except Exception as e:
+            _log(f"local presence version lookup failed ({e}); trying valorant-api")
+        try:
+            data = pooled_request(
+                "GET", "https://valorant-api.com/v1/version", timeout=6).json()
+            rcv = (data.get("data") or {}).get("riotClientVersion")
+            if rcv:
+                _CLIENT_VERSION = rcv
+                _log(f"client version (valorant-api): {rcv}")
+                return rcv
+        except Exception as e:
+            _log(f"valorant-api version lookup failed ({e}); using log")
+        try:
+            path = os.path.join(os.getenv("LOCALAPPDATA", ""),
+                                r"VALORANT\Saved\Logs\ShooterGame.log")
+            with open(path, "r", encoding="utf8") as f:
+                for line in f:
+                    if "CI server version:" in line:
+                        _CLIENT_VERSION = line.split("CI server version: ")[1].strip()
+                        return _CLIENT_VERSION
+        except Exception:
+            pass
+        return "release-09.00"
+
+    def headers(self, refresh: bool = False) -> dict:
+        if self._headers and not refresh:
+            return self._headers
+        local = {"Authorization": "Basic " + base64.b64encode(
+            ("riot:" + self.lockfile["password"]).encode()).decode()}
+        ent = _loopback(self.lockfile['port'], "/entitlements/v1/token", local)
+        if not isinstance(ent, dict) or not all(
+                k in ent for k in ("subject", "accessToken", "token")):
+            raise ClientNotReady("entitlements not ready (client still signing in)")
+        self.puuid = ent["subject"]
+        self._headers = {
+            "Authorization": f"Bearer {ent['accessToken']}",
+            "X-Riot-Entitlements-JWT": ent["token"],
+            "X-Riot-ClientPlatform": (
+                "ew0KCSJwbGF0Zm9ybVR5cGUiOiAiUEMiLA0KCSJwbGF0Zm9ybU9TIjog"
+                "IldpbmRvd3MiLA0KCSJwbGF0Zm9ybU9TVmVyc2lvbiI6ICIxMC4wLjE5"
+                "MDQyLjEuMjU2LjY0Yml0IiwNCgkicGxhdGZvcm1DaGlwc2V0IjogIlVua25vd24iDQp9"),
+            "X-Riot-ClientVersion": self._client_version(),
+            "User-Agent": "ShooterGame/13 Windows/10.0.19043.1.256.64bit",
+        }
+        return self._headers
+
+    def glz_post(self, endpoint: str, json: dict | None = None) -> requests.Response:
+        _riot_throttle(glz=True)
+        self.req_count += 1
+        return pooled_request("POST", self.glz_url + endpoint, headers=self.headers(),
+                              json=json, verify=True, timeout=8)
+
+    @staticmethod
+    def _json(resp):
+        pass
+        try:
+            return resp.json()
+        except ValueError:
+            if resp.status_code == 429:
+                return {"errorCode": "RATE_LIMITED", "status": 429}
+            return {}
+
+    def glz_get(self, endpoint: str) -> dict:
+        _riot_throttle(glz=True)
+        self.req_count += 1
+        return self._json(pooled_request("GET", self.glz_url + endpoint,
+                                         headers=self.headers(), verify=True, timeout=8))
+
+    def pd_get(self, endpoint: str, refresh: bool = False, retries: int = 0) -> dict:
+        pass
+        backoff = 3.0
+        for attempt in range(retries + 1):
+            _riot_throttle(endpoint)
+            self.req_count += 1
+            resp = pooled_request("GET", self.pd_url + endpoint,
+                                  headers=self.headers(refresh), verify=True, timeout=8)
+            if resp.status_code == 429:
+
+                try:
+                    ra = float(resp.headers.get("Retry-After") or 0)
+                except (TypeError, ValueError):
+                    ra = 0.0
+                _set_hold(endpoint, ra or backoff)
+                if attempt < retries:
+                    backoff += 3.0
+                    continue
+                return {"errorCode": "RATE_LIMITED", "status": 429}
+            return self._json(resp)
+        return {"errorCode": "RATE_LIMITED", "status": 429}
+
+    def pd_put(self, endpoint: str, payload, refresh: bool = False) -> dict:
+        _riot_throttle(endpoint)
+        self.req_count += 1
+        return self._json(pooled_request("PUT", self.pd_url + endpoint,
+                                         headers=self.headers(refresh),
+                                         json=payload, verify=True, timeout=8))
+
+    def local_get(self, endpoint: str) -> dict:
+        local = {"Authorization": "Basic " + base64.b64encode(
+            ("riot:" + self.lockfile["password"]).encode()).decode()}
+        return _loopback(self.lockfile['port'], endpoint, local)
+
+
+def chat_presences(auth: LocalAuth) -> list[dict]:
+    data = auth.local_get("/chat/v4/presences")
+    return [dict(p) for p in ((data or {}).get("presences", []) or [])
+            if isinstance(p, dict)]
+
+
+def _iso_to_epoch(s: str | None) -> float | None:
+    pass
+    try:
+        dt = datetime.fromisoformat((s or "").replace("Z", "+00:00"))
+        return dt.timestamp() if dt.year >= 2000 else None
+    except Exception:
+        return None
+
+_PARTY_LOGGED = False
+
+_QUEUE_STARTED: float | None = None
+
+def _self_presence_private(auth: LocalAuth) -> dict | None:
+    pass
+    try:
+        presences = chat_presences(auth)
+    except Exception:
+        return None
+    for pr in presences:
+        if pr.get("puuid") != auth.puuid or not pr.get("private"):
+            continue
+        if pr.get("product") not in (None, "valorant"):
+            continue
+        try:
+            priv = json.loads(base64.b64decode(str(pr["private"])).decode("utf-8"))
+            return priv if isinstance(priv, dict) else None
+        except Exception:
+            return None
+    return None
+
+_OWN_PARTY: dict = {"at": 0.0, "members": []}
+
+def own_party_members(auth: LocalAuth) -> list[dict]:
+    now = time.time()
+    if now - _OWN_PARTY["at"] < 5:
+        return _OWN_PARTY["members"]
+    priv = _self_presence_private(auth) or {}
+    try:
+        pid = (priv.get("partyPresenceData") or {}).get("partyId") or priv.get("partyId")
+        if not pid:
+            me = auth.glz_get(f"/parties/v1/players/{auth.puuid}")
+            pid = me.get("CurrentPartyID") if isinstance(me, dict) else None
+        party = auth.glz_get(f"/parties/v1/parties/{pid}") if pid else {"Members": []}
+    except Exception:
+        party = None
+    members = party.get("Members") if isinstance(party, dict) else None
+    if isinstance(members, list):
+        _OWN_PARTY["members"] = [m for m in members if isinstance(m, dict) and m.get("Subject")]
+    _OWN_PARTY["at"] = now
+    return _OWN_PARTY["members"]
+
+def party_snapshot(auth: LocalAuth) -> dict:
+    pass
+    global _PARTY_LOGGED
+    priv = _self_presence_private(auth)
+    if not priv:
+        return {"available": False}
+    pdata = priv.get("partyPresenceData") or {}
+    pid = pdata.get("partyId") or priv.get("partyId")
+    if not pid:
+        return {"available": False}
+
+    def _label(q):
+        return GAMEMODES.get(q, q.replace("_", " ").title())
+
+    state = pdata.get("partyState") or "DEFAULT"
+    qid = (priv.get("queueId")
+           or (priv.get("matchPresenceData") or {}).get("queueId") or "").lower()
+    snap = {
+        "available": True,
+        "partyId": pid,
+        "queueId": qid or None,
+        "queueName": _label(qid) if qid else None,
+        "eligible": [],
+        "state": state,
+        "inQueue": "MATCHMAKING" in state,
+        "queuedAt": None,
+        "partySize": pdata.get("partySize") or priv.get("partySize") or 1,
+        "isOwner": bool(pdata.get("isPartyOwner", True)),
+        "allReady": True,
+    }
+
+    party = auth.glz_get(f"/parties/v1/parties/{pid}")
+    if isinstance(party, dict) and party.get("Members"):
+        if not _PARTY_LOGGED:
+            _PARTY_LOGGED = True
+            _log(f"party payload keys: {sorted(party.keys())}")
+        members = party.get("Members") or []
+        mine = next((m for m in members if m.get("Subject") == auth.puuid), {})
+        gqid = ((party.get("MatchmakingData") or {}).get("QueueID") or "").lower()
+        if gqid:
+            snap["queueId"], snap["queueName"] = gqid, _label(gqid)
+        if party.get("State"):
+            snap["state"] = party["State"]
+            snap["inQueue"] = "MATCHMAKING" in party["State"]
+        snap["eligible"] = [{"id": q, "name": _label(q)}
+                            for q in (party.get("EligibleQueues") or [])]
+        snap["queuedAt"] = _iso_to_epoch(party.get("QueueEntryTime"))
+        snap["partySize"] = len(members)
+        if "IsOwner" in mine:
+            snap["isOwner"] = bool(mine.get("IsOwner"))
+        snap["allReady"] = all(bool(m.get("IsReady", True)) for m in members)
+    elif isinstance(party, dict) and party.get("status") == 429:
+        snap["throttled"] = True
+
+    global _QUEUE_STARTED
+    if snap["inQueue"]:
+        now = time.time()
+        glz_at = snap["queuedAt"]
+        if glz_at and glz_at <= now:
+            _QUEUE_STARTED = glz_at
+        elif _QUEUE_STARTED is None:
+            _QUEUE_STARTED = now
+        snap["queuedAt"] = _QUEUE_STARTED
+
+        snap["queueElapsed"] = max(0, round(now - _QUEUE_STARTED, 1))
+    else:
+        _QUEUE_STARTED = None
+        snap["queuedAt"] = None
+    return snap
+
+class RiotClient:
+    def __init__(self):
+        self.api_key = os.getenv("RIOT_API_KEY", "").strip()
+        self.region = os.getenv("RIOT_REGION", "na").strip().lower()
+        self.source_pref = os.getenv("DATA_SOURCE", "auto").strip().lower()
+
+    def get_player_overview(self, puuid: str) -> dict:
+        pass
+        order = {
+            "auto": ["local", "official", "demo"],
+            "local": ["local"],
+            "official": ["official"],
+            "demo": ["demo"],
+        }.get(self.source_pref, ["local", "official", "demo"])
+
+        last_err = None
+        for src in order:
+            try:
+                if src == "local" and self._local_ready():
+                    data = self._local_overview(puuid)
+                    if data and data.get("matches"):
+                        return data
+                elif src == "official" and self.api_key:
+                    data = self._official_overview(puuid)
+                    if data and data.get("matches"):
+                        return data
+                elif src == "demo":
+                    return self._demo_overview(puuid)
+            except Exception as e:
+                last_err = e
+                _log(f"source '{src}' failed: {e}")
+
+        _log(f"falling back to demo (last error: {last_err})")
+        return self._demo_overview(puuid)
+
+    def _demo_overview(self, puuid: str) -> dict:
+        data = sample_data.generate_player(puuid)
+
+        real_id = self._official_riot_id(puuid) if self.api_key else None
+        if real_id:
+            data["riotId"] = real_id
+            data["source"] = "demo"
+            data["sourceDetail"] = "Generated matches • Riot ID verified via account-v1"
+        else:
+            data["sourceDetail"] = "Generated sample career (no live source reachable)"
+        return data
+
+    def _official_headers(self) -> dict:
+        return {"X-Riot-Token": self.api_key}
+
+    def _official_riot_id(self, puuid: str) -> str | None:
+        cluster = _ROUTING.get(self.region, "americas")
+        try:
+            r = pooled_request(
+                "GET",
+                f"https://{cluster}.api.riotgames.com/riot/account/v1/accounts/by-puuid/{puuid}",
+                headers=self._official_headers(), timeout=8)
+            if r.ok:
+                j = r.json()
+                return f"{j.get('gameName')}#{j.get('tagLine')}"
+        except requests.RequestException as e:
+            _log(f"account-v1 lookup failed: {e}")
+        return None
+
+    def _official_overview(self, puuid: str) -> dict | None:
+        base = f"https://{self.region}.api.riotgames.com"
+        ml = pooled_request("GET", f"{base}/val/match/v1/matchlists/by-puuid/{puuid}",
+                            headers=self._official_headers(), timeout=10)
+        if ml.status_code == 403:
+            _log("val-match-v1 not authorized on this key (needs production access)")
+            return None
+        ml.raise_for_status()
+        history = ml.json().get("history", [])[:20]
+        matches = []
+        for h in history:
+            md = pooled_request("GET", f"{base}/val/match/v1/matches/{h['matchId']}",
+                                headers=self._official_headers(), timeout=10)
+            if not md.ok:
+                continue
+            norm = self._normalize_match(md.json(), puuid)
+            if norm:
+                matches.append(norm)
+        if not matches:
+            return None
+        tier = self._latest_tier(matches)
+        return {
+            "puuid": puuid,
+            "riotId": self._official_riot_id(puuid) or "Player#NA1",
+            "rankTier": tier,
+            "rr": 0,
+            "peakTier": tier,
+            "matches": matches,
+            "source": "official",
+            "sourceDetail": "Official Riot API (val-match-v1)",
+        }
+
+    def _local_ready(self) -> bool:
+        if self.source_pref not in ("auto", "local"):
+            return False
+        return LocalAuth.available()
+
+    def _local_overview(self, puuid: str) -> dict | None:
+        try:
+            auth = LocalAuth()
+            auth.headers()
+        except Exception as e:
+            _log(f"local client not ready: {e}")
+            return None
+        hist = auth.pd_get(f"/match-history/v1/history/{puuid}?startIndex=0&endIndex=20")
+        entries = (hist or {}).get("History", []) if isinstance(hist, dict) else []
+        matches = []
+        for h in entries[:20]:
+            mid = h.get("MatchID")
+            if not mid:
+                continue
+            try:
+                details = auth.pd_get(f"/match-details/v1/matches/{mid}")
+                if isinstance(details, dict) and "players" in details:
+                    norm = self._normalize_match(details, puuid)
+                    if norm:
+                        matches.append(norm)
+            except Exception as e:
+                _log(f"match detail fetch failed: {e}")
+        if not matches:
+            return None
+        tier, rr = self._local_rank(puuid, matches)
+        return {
+            "puuid": puuid,
+            "riotId": self._local_name(auth, puuid),
+            "rankTier": tier,
+            "rr": rr,
+            "peakTier": tier,
+            "matches": matches,
+            "source": "local",
+            "sourceDetail": "Local VALORANT client API",
+        }
+
+    def _local_name(self, auth: LocalAuth, puuid: str) -> str:
+        try:
+            names = auth.pd_put("/name-service/v2/players", [puuid])
+            if isinstance(names, list) and names:
+                n = names[0]
+                return f"{n.get('GameName')}#{n.get('TagLine')}"
+        except Exception:
+            pass
+        return "You"
+
+    def _local_rank(self, puuid: str, matches):
+        try:
+            auth = LocalAuth()
+            auth.headers()
+            updates = auth.pd_get(
+                f"/mmr/v1/players/{puuid}/competitiveupdates"
+                f"?startIndex=0&endIndex=1&queue=competitive")
+            mt = (updates or {}).get("Matches", []) if isinstance(updates, dict) else []
+            if mt:
+                return mt[0].get("TierAfterUpdate", 0), mt[0].get("RankedRatingAfterUpdate", 0)
+        except Exception as e:
+            _log(f"competitive updates failed: {e}")
+        return self._latest_tier(matches), 0
+
+    def _normalize_match(self, raw: dict, subject: str) -> dict | None:
+        info = raw.get("matchInfo", raw)
+        players = raw.get("players", [])
+        subj = next(
+            (p for p in players if p.get("subject") == subject or p.get("puuid") == subject),
+            None,
+        )
+        if not subj:
+            return None
+
+        agent_uuid = (subj.get("characterId") or "").lower()
+        agent_name = UUID_TO_NAME.get(agent_uuid, "Unknown")
+        st = subj.get("stats", {}) or {}
+        team_id = subj.get("teamId")
+
+        teams = {t.get("teamId"): t for t in raw.get("teams", []) if t.get("teamId")}
+        my_team = teams.get(team_id, {})
+        won = my_team.get("won")
+        rw = my_team.get("roundsWon", my_team.get("numPoints", 0))
+        other = [t for tid, t in teams.items() if tid != team_id]
+        rl = other[0].get("roundsWon", other[0].get("numPoints", 0)) if other else 0
+        if won is True:
+            result = "Victory"
+        elif won is False:
+            result = "Defeat"
+        else:
+            result = "Draw"
+
+        teammates = []
+        for p in players:
+            if p is subj or p.get("teamId") != team_id:
+                continue
+            pid = p.get("subject") or p.get("puuid")
+            name = (f"{p.get('gameName')}#{p.get('tagLine')}"
+                    if p.get("gameName") else (pid or "Unknown")[:8])
+            teammates.append({
+                "puuid": pid,
+                "name": name,
+                "agent": UUID_TO_NAME.get((p.get("characterId") or "").lower(), "Unknown"),
+            })
+
+        queue = (info.get("queueId") or info.get("queueID") or "").lower()
+        start_ms = info.get("gameStartMillis") or info.get("gameStartTimeMillis") or 0
+        date = (datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).isoformat()
+                if start_ms else datetime.now(timezone.utc).isoformat())
+
+        rounds = max(rw + rl, 1)
+        return {
+            "matchId": info.get("matchId") or raw.get("matchId") or "unknown",
+            "map": map_name_from_path(info.get("mapId", "")),
+            "mode": _QUEUE_NAMES.get(queue, GAMEMODES.get(queue, "Custom")),
+            "date": date,
+            "result": result,
+            "roundsWon": rw,
+            "roundsLost": rl,
+            "agent": agent_name,
+            "stats": {
+                "kills": st.get("kills", 0),
+                "deaths": st.get("deaths", 0),
+                "assists": st.get("assists", 0),
+                "score": st.get("score", 0),
+                "acs": round(st.get("score", 0) / rounds) if rounds else 0,
+                "hsPct": 0.0,
+            },
+            "teammates": teammates,
+        }
+
+    @staticmethod
+    def _latest_tier(matches) -> int:
+        for m in matches:
+            t = m.get("competitiveTier")
+            if t:
+                return t
+        return 0
+
+    def _party_live(self) -> bool:
+        pass
+        return self.source_pref != "demo" and LocalAuth.available()
+
+    def party_state(self, region: str | None = None) -> dict:
+        pass
+        if not self._party_live():
+            import sample_match
+            return sample_match.demo_queue_state()
+        try:
+            auth = LocalAuth(region)
+            auth.headers()
+            return party_snapshot(auth)
+        except Exception as e:
+            return {"available": False, "message": str(e)}

@@ -1,0 +1,21 @@
+# Valtix — GUI Edition
+# The web stack (Flask, its 12 transitive deps) is gone: the desktop GUI is
+# tkinter, which ships with Python. Only the Riot client layer needs packages.
+#
+# --- direct dependencies ---
+requests==2.34.2
+python-dotenv==1.2.2
+tzdata==2026.4        # IANA timezone database (required by zoneinfo on Windows)
+rich==15.0.0          # optional: only for `python run.py --once`
+
+pillow==13.0.0       # crosshair overlay: pixel-art & PNG rendering
+
+# --- transitive dependencies (pinned so the resolver can't swap them) ---
+certifi==2026.5.20
+charset-normalizer==3.4.7
+idna==3.18
+markdown-it-py==4.2.0
+mdurl==0.1.2
+Pygments==2.20.0
+typing_extensions==4.15.0
+urllib3==2.7.0

@@ -1,0 +1,1707 @@
+from __future__ import annotations
+
+import base64
+import json
+import os
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+import requests
+
+import riot_client
+import valapi
+from agents import UUID_TO_NAME, resolve_agent
+from vconstants import (GAMEMODES, party_color, rank_from_tier,
+                        map_name_from_path, STATES)
+
+def _mode_label(queue: str) -> str:
+    pass
+    if not queue:
+        return "Custom"
+    return GAMEMODES.get(queue.lower(), queue.replace("_", " ").title())
+
+BEFORE_ASCENDANT = {
+    "0df5adb9-4dcb-6899-1306-3e9860661dd3", "3f61c772-4560-cd3f-5d3f-a7ab5abda6b3",
+    "0530b9c4-4980-f2ee-df5d-09864cd00542", "46ea6166-4573-1128-9cea-60a15640059b",
+    "fcf2c8f4-4324-e50b-2e23-718e4a3ab046", "97b6e739-44cc-ffa7-49ad-398ba502ceb0",
+    "ab57ef51-4e59-da91-cc8d-51a5a2b9b8ff", "52e9749a-429b-7060-99fe-4595426a0cf7",
+    "71c81c67-4fae-ceb1-844c-aab2bb8710fa", "2a27e5d2-4d30-c9e2-b15a-93b8909a442c",
+    "4cb622e1-4244-6da3-7276-8daaf1c01be2", "a16955a5-4ad0-f761-5e9e-389df1c892fb",
+    "97b39124-46ce-8b55-8fd1-7cbf7ffe173f", "573f53ac-41a5-3a7d-d9ce-d6a6298e5704",
+    "d929bc38-4ab6-7da4-94f0-ee84f8ac141e", "3e47230a-463c-a301-eb7d-67bb60357d4f",
+    "808202d6-4f2b-a8ff-1feb-b3a0590ad79f",
+}
+
+_CACHE: dict[str, dict] = {}
+
+_MATCH_META: dict[str, dict] = {}
+
+_LOBBY_CACHE: dict[bool, dict] = {}
+
+_LAST_BOARD: dict = {"board": None, "at": 0.0, "puuid": None}
+
+_CONTENT_CACHE: dict = {"seasons": None, "at": 0.0}
+
+_LEVEL_CACHE: dict[str, tuple[int, float]] = {}
+_LEVEL_MISS_TTL = 600.0
+
+_KD_FILL_LOCK = threading.Lock()
+_KD_FILLING: set[str] = set()
+
+_KD_CACHE: dict[str, tuple[tuple, tuple, int]] = {}
+_KD_CACHE_MAX = 300
+
+_MIDS_CACHE: dict[str, tuple[list[str], bool, float]] = {}
+_MIDS_TTL = 60.0
+
+_RANK_CACHE: dict[str, tuple[dict, str, float]] = {}
+_RR_CACHE: dict[str, tuple] = {}
+
+_NAME_CACHE: dict[str, str] = {}
+_NAME_CACHE_MAX = 600
+
+_MATCH_DETAIL_CACHE: dict[str, dict] = {}
+_MATCH_DETAIL_MAX = 200
+
+_CACHE_WRITE_LOCK = threading.Lock()
+
+def _cache_put(cache: dict, cap: int, key, value) -> None:
+    pass
+    with _CACHE_WRITE_LOCK:
+        while len(cache) >= cap:
+            cache.pop(next(iter(cache)), None)
+        cache[key] = value
+
+_QUEUE_CACHE: dict = {"at": 0.0, "data": None}
+
+def _log(msg: str) -> None:
+    if os.getenv("VALTIX_QUIET"):
+        return
+    print(f"[reveal] {msg}", flush=True)
+
+def _is_throttled(resp) -> bool:
+    pass
+    return isinstance(resp, dict) and resp.get("status") == 429
+
+def _fallback_name(puuid: str) -> str:
+    pass
+    return f"Player-{(puuid or '????')[:4].upper()}"
+
+
+_FINAL_SB: dict = {"matchId": None, "selfTeam": None, "startedAt": 0.0,
+                   "lastTry": 0.0, "report": None, "endedAt": None,
+                   "nameTries": 0, "nameTryAt": 0.0}
+_FS_POLL_SECS = 12.0
+_FS_GIVE_UP = 900.0
+
+def last_final_report() -> dict | None:
+    rep = _FINAL_SB.get("report")
+    return dict(rep) if isinstance(rep, dict) else None
+
+def _hs_percent_map(md: dict) -> dict:
+    hits: dict[str, int] = {}
+    heads: dict[str, int] = {}
+    for rr in md.get("roundResults") or []:
+        for ps in rr.get("playerStats") or []:
+            sid = ps.get("subject")
+            if not sid:
+                continue
+            for dmg in ps.get("damage") or []:
+                hits[sid] = hits.get(sid, 0) + (dmg.get("legshots", 0) or 0) \
+                    + (dmg.get("bodyshots", 0) or 0) + (dmg.get("headshots", 0) or 0)
+                heads[sid] = heads.get(sid, 0) + (dmg.get("headshots", 0) or 0)
+    return {sid: (round(heads.get(sid, 0) / total * 100) if total else None)
+            for sid, total in hits.items()}
+
+def _ult_casts(st: dict) -> int | None:
+    casts = st.get("ability_casts") or st.get("abilityCasts") or {}
+    for key in ("ultimate_casts", "ultimateCasts", "ultimate_count"):
+        v = casts.get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return int(v)
+    return None
+
+def build_final_scoreboard(md: dict, *, match_id: str, self_team: str | None,
+                           self_puuid: str = "", name_map: dict | None = None) -> dict | None:
+    if not isinstance(md, dict):
+        return None
+    info = md.get("matchInfo") or {}
+    raw_players = md.get("players") or []
+    if not raw_players:
+        return None
+    teams_meta = {t.get("teamId"): int(t.get("roundsWon", 0) or 0)
+                  for t in md.get("teams") or [] if t.get("teamId")}
+    rounds = sum(teams_meta.values())
+    hs_map = _hs_percent_map(md)
+
+    rows = []
+    for p in raw_players:
+        pid = p.get("subject")
+        if not pid:
+            continue
+        st = p.get("stats") or {}
+        score = int(st.get("score", 0) or 0)
+        k = int(st.get("kills", 0) or 0)
+        d = int(st.get("deaths", 0) or 0)
+        a = int(st.get("assists", 0) or 0)
+        tier = int(p.get("competitiveTier") or 0)
+        rank = rank_from_tier(tier)
+        ident = p.get("playerIdentity") or p.get("PlayerIdentity") or {}
+        agent = resolve_agent(p.get("characterId") or "") or {}
+        name = (p.get("gameName") or "").strip()
+        tag = (p.get("tagLine") or "").strip()
+        if name:
+            display = f"{name}#{tag}" if tag else name
+        else:
+            display = ((name_map or {}).get(pid)
+                       or (name_map or {}).get(pid.lower())
+                       or _NAME_CACHE.get(pid.lower())
+                       or _fallback_name(pid))
+        rows.append({
+            "puuid": pid,
+            "name": display,
+            "team": p.get("teamId") or "Blue",
+            "agent": agent.get("name") or "Unknown",
+            "agentPortrait": agent.get("portrait"),
+            "agentColor": agent.get("color", "#8B978F"),
+            "rankTier": tier, "rank": rank["name"], "rankColor": rank["color"],
+            "rankIcon": valapi.cached_rank_icon(tier),
+            "level": int(p.get("accountLevel") or ident.get("AccountLevel") or 0) or None,
+            "kills": k, "deaths": d, "assists": a,
+            "score": score,
+            "acs": round(score / rounds) if rounds else 0,
+            "hsPct": hs_map.get(pid),
+            "ultsUsed": _ult_casts(st),
+            "isSelf": pid == self_puuid,
+        })
+    if not rows:
+        return None
+    rows.sort(key=lambda r: (-r["score"], -r["kills"], r["name"]))
+
+    result = None
+    if self_team and len(teams_meta) >= 1:
+        mine = teams_meta.get(self_team)
+        theirs = [v for tid, v in teams_meta.items() if tid != self_team]
+        if mine is not None and theirs:
+            other = max(theirs)
+            result = ("Victory" if mine > other
+                      else "Defeat" if mine < other else "Draw")
+
+    start = info.get("gameStartMillis") or 0
+    length = info.get("gameLengthMillis") or 0
+    map_name = map_name_from_path(info.get("mapId", ""))
+    return {
+        "matchId": match_id or info.get("matchId", ""),
+        "map": map_name,
+        "mapSplash": valapi.map_splash(map_name),
+        "mode": _mode_label(info.get("queueID") or info.get("queueId") or ""),
+        "selfTeam": self_team,
+        "scores": teams_meta,
+        "result": result,
+        "finishedAt": int((start + length) / 1000) if start else None,
+        "players": rows,
+    }
+
+def smurf_signals(*, level, peak_tier, rank_tier, kd, win_rate, games) -> list[str]:
+    pass
+    reasons: list[str] = []
+    lvl = level or 0
+    if lvl <= 0:
+        return reasons
+    if lvl < 60 and (peak_tier or 0) >= 20:
+        reasons.append(f"Lvl {lvl}, peak {rank_from_tier(peak_tier)['name']}")
+    if kd is not None and kd >= 1.35 and lvl < 80:
+        reasons.append(f"K/D {kd} at lvl {lvl}")
+    if win_rate is not None and win_rate >= 62 and (games or 0) >= 15 and lvl < 100:
+        reasons.append(f"{win_rate}% WR")
+    return reasons
+
+def form_streak(form: list) -> dict | None:
+    pass
+    if not form:
+        return None
+    t, n = form[0], 1
+    for r in form[1:]:
+        if r != t:
+            break
+        n += 1
+    return {"type": t, "count": n}
+
+_ROUNDS: dict = {"match": None, "ally": 0, "enemy": 0, "results": []}
+
+
+def track_rounds(match_id, score) -> list | None:
+    if not match_id or not score or score.get("round") is None:
+        return None
+    ally, enemy = int(score.get("ally") or 0), int(score.get("enemy") or 0)
+    t = _ROUNDS
+    if t["match"] != match_id or ally < t["ally"] or enemy < t["enemy"]:
+        t.update(match=match_id, ally=ally, enemy=enemy, results=["?"] * (ally + enemy))
+        return list(t["results"])
+    won, lost = ally - t["ally"], enemy - t["enemy"]
+    if won + lost == 1:
+        t["results"].append("W" if won else "L")
+    elif won + lost > 1:
+        t["results"].extend(["?"] * (won + lost))
+    t["ally"], t["enemy"] = ally, enemy
+    return list(t["results"])
+
+
+def compute_smurf(*, level, peak_tier, rank_tier, kd, win_rate, games) -> tuple[bool, list[str]]:
+    pass
+    reasons = smurf_signals(level=level, peak_tier=peak_tier, rank_tier=rank_tier,
+                            kd=kd, win_rate=win_rate, games=games)
+    if not reasons:
+        return False, []
+    flagged = ((level or 0) < 60 and len(reasons) >= 1) or len(reasons) >= 2
+    return flagged, reasons
+
+def assemble_player(*, puuid, name, name_hidden, team, is_self, agent_id,
+                    rank_tier, rr, leaderboard, peak_tier, prev_tier,
+                    win_rate, games, kd, hs, level, level_hidden, party,
+                    skin=None, peak_act=None, rr_earned=None,
+                    player_card=None, title=None, weapons=None,
+                    selection=None, smurf=False, smurf_reasons=None,
+                    intel=None) -> dict:
+    pass
+    agent = resolve_agent(agent_id or "") or {}
+    rank = rank_from_tier(rank_tier)
+    peak = rank_from_tier(peak_tier)
+    prev = rank_from_tier(prev_tier)
+    intel = intel or {}
+    return {
+        "puuid": puuid,
+        "name": name,
+        "nameHidden": bool(name_hidden),
+        "team": team,
+        "isSelf": bool(is_self),
+        "title": title,
+        "playerCard": player_card,
+        "agent": agent.get("name") or (agent_id and "Unknown") or None,
+        "agentId": agent.get("uuid"),
+        "agentPortrait": agent.get("portrait"),
+        "agentArt": agent.get("fullPortrait"),
+        "agentColor": agent.get("color", "#8B978F"),
+        "role": agent.get("role"),
+        "selection": selection,
+        "rankTier": rank["tier"],
+        "rank": rank["name"],
+        "rankColor": rank["color"],
+        "rankGroup": rank["group"],
+        "rankIcon": valapi.rank_icon(rank["tier"]),
+        "rr": rr,
+        "rrEarned": rr_earned,
+        "leaderboard": leaderboard or 0,
+        "peakRankTier": peak["tier"],
+        "peakRank": peak["name"],
+        "peakColor": peak["color"],
+        "peakIcon": valapi.rank_icon(peak["tier"]),
+        "peakAct": peak_act,
+        "previousRank": prev["name"],
+        "winRate": win_rate,
+        "games": games,
+        "kd": kd,
+        "hsPct": hs,
+        "skin": skin,
+        "weapons": weapons or [],
+        "level": level,
+        "levelHidden": bool(level_hidden),
+        "party": party,
+        "smurf": bool(smurf),
+        "smurfReasons": smurf_reasons or [],
+
+        "topAgents": intel.get("topAgents") or [],
+        "form": intel.get("form") or [],
+        "streak": intel.get("streak"),
+        "mapWins": intel.get("mapWins") or {},
+    }
+
+class LiveMatch:
+    def __init__(self, auth):
+        self.auth = auth
+        self.auth.headers()
+        self.self_puuid = self.auth.puuid
+        self._content = None
+
+    def _presences(self) -> list:
+        return riot_client.chat_presences(self.auth)
+
+    @staticmethod
+    def _decode_private(private):
+        if not private or "{" in str(private):
+            return {"isValid": False}
+        try:
+            decoded = json.loads(base64.b64decode(str(private)).decode("utf-8"))
+            return decoded if isinstance(decoded, dict) else {"isValid": False}
+        except Exception:
+            return {"isValid": False}
+
+    def game_state(self, presences) -> str:
+        for p in presences:
+            if p.get("puuid") != self.self_puuid:
+                continue
+            if p.get("product") not in (None, "", "valorant"):
+                continue
+            priv = self._decode_private(p.get("private"))
+            if "matchPresenceData" in priv:
+                return priv["matchPresenceData"].get("sessionLoopState", "MENUS")
+            return priv.get("sessionLoopState", "MENUS")
+        return "OFFLINE"
+
+    def party_map(self, puuids, presences, teams=None) -> list[dict]:
+        puuids = set(puuids)
+        teams = teams or {}
+        parent = {p: p for p in puuids}
+        live_pid: dict[str, str] = {}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def link(group, pid=None):
+            group = [m for m in group if m in puuids]
+            for m in group:
+                if pid:
+                    live_pid[m] = pid
+                parent[find(m)] = find(group[0])
+
+        own = riot_client.own_party_members(self.auth)
+        link([m["Subject"] for m in own], "own-party")
+
+        by_pid: dict[str, list] = {}
+        for p in presences:
+            if p.get("puuid") not in puuids:
+                continue
+            priv = self._decode_private(p.get("private"))
+            if not priv.get("isValid"):
+                continue
+            data = priv.get("partyPresenceData", priv)
+            if data.get("partySize", 0) > 1 and data.get("partyId"):
+                by_pid.setdefault(data["partyId"], []).append(p["puuid"])
+        for pid, group in by_pid.items():
+            if len(group) > 1:
+                link(group, pid)
+
+        for a in puuids:
+            hit = _KD_CACHE.get(a)
+            for mid in (hit[1] if hit else ()):
+                md = _MATCH_DETAIL_CACHE.get(mid)
+                if not isinstance(md, dict):
+                    continue
+                pids = {pl.get("subject"): pl.get("partyId") for pl in md.get("players", [])}
+                if not pids.get(a):
+                    continue
+                link([a] + [b for b, pid in pids.items()
+                            if b != a and b in puuids and pid == pids[a]
+                            and teams.get(a) == teams.get(b)])
+
+        two_teams = len(set(teams.values())) == 2
+        groups: dict[tuple, list] = {}
+        for p in puuids:
+            groups.setdefault((find(p), teams.get(p) if two_teams else None), []).append(p)
+        self_team = teams.get(self.self_puuid)
+        out = []
+        for (root, side), members in groups.items():
+            if len(members) < 2:
+                continue
+            members.sort()
+            pid = next((live_pid[m] for m in members if m in live_pid), f"likely-{members[0]}")
+            out.append({
+                "id": (f"{pid}-{side}" if side != self_team and (root, self_team) in groups
+                       else pid),
+                "members": members,
+                "inferred": not all(m in live_pid for m in members),
+            })
+        out.sort(key=lambda g: (self.self_puuid not in g["members"],
+                                teams.get(g["members"][0]) != self_team, g["members"][0]))
+        return out
+
+    def party_members(self, presences) -> list:
+        own = riot_client.own_party_members(self.auth)
+        if own:
+            out = []
+            for m in own:
+                ident = m.get("PlayerIdentity") or {}
+                out.append({"puuid": m["Subject"],
+                            "incognito": bool(ident.get("Incognito")),
+                            "level": ident.get("AccountLevel", 0),
+                            "level_hidden": bool(ident.get("HideAccountLevel")),
+                            "card": ident.get("PlayerCardID"),
+                            "title": ident.get("PlayerTitleID")})
+            return out
+
+        def _fields(priv):
+            data = priv.get("partyPresenceData", priv)
+            pid = data.get("partyId", "")
+            player = priv.get("playerPresenceData", priv)
+            return pid, player.get("accountLevel", 0), player
+
+        my_party = None
+        for p in presences:
+            if p.get("puuid") == self.self_puuid:
+                priv = self._decode_private(p.get("private"))
+                if priv.get("isValid"):
+                    my_party = _fields(priv)[0]
+                break
+        if not my_party:
+            return [{"puuid": self.self_puuid, "level": 0, "incognito": False}]
+
+        members = []
+        for p in presences:
+            priv = self._decode_private(p.get("private"))
+            if not priv.get("isValid"):
+                continue
+            pid, level, player = _fields(priv)
+            if pid == my_party:
+                members.append({"puuid": p["puuid"], "level": level,
+                                "incognito": False,
+                                "card": player.get("playerCardId"),
+                                "title": player.get("playerTitleId")})
+        return members or [{"puuid": self.self_puuid, "level": 0, "incognito": False}]
+
+    def reveal_names(self, puuids) -> dict:
+        names: dict[str, str] = {}
+        if not puuids:
+            return names
+
+        def _ingest(rows):
+            if not isinstance(rows, list):
+                return
+            for entry in rows:
+                if not isinstance(entry, dict):
+                    continue
+                subj = entry.get("Subject")
+                game, tag = entry.get("GameName") or "", entry.get("TagLine") or ""
+                if subj and game.strip():
+                    full = f"{game}#{tag}" if tag else game
+                    names[subj] = full
+                    _cache_put(_NAME_CACHE, _NAME_CACHE_MAX, subj.lower(), full)
+
+        try:
+            res = self.auth.pd_put("/name-service/v2/players", puuids)
+            _ingest(res)
+        except Exception:
+            pass
+        return names
+
+    def resolve_identity(self, puuid, name_service, ident):
+        name = name_service.get(puuid)
+        level = ident.get("AccountLevel", 0) or 0
+        level_hidden = ident.get("HideAccountLevel", False)
+        return name or _fallback_name(puuid), level, level_hidden
+
+    def match_score(self, presences) -> dict | None:
+        pass
+        for p in presences:
+            if p.get("puuid") != self.self_puuid:
+                continue
+            priv = self._decode_private(p.get("private"))
+            data = priv.get("matchPresenceData", priv)
+            ally = data.get("partyOwnerMatchScoreAllyTeam")
+            enemy = data.get("partyOwnerMatchScoreEnemyTeam")
+            if ally is None and enemy is None:
+
+                ally = priv.get("partyOwnerMatchScoreAllyTeam")
+                enemy = priv.get("partyOwnerMatchScoreEnemyTeam")
+            if ally is None and enemy is None:
+                return None
+            ally, enemy = int(ally or 0), int(enemy or 0)
+            return {"ally": ally, "enemy": enemy, "round": ally + enemy + 1}
+        return None
+
+    def loadouts(self, state, match_id) -> dict:
+        pass
+        path = (f"/core-game/v1/matches/{match_id}/loadouts" if state == "INGAME"
+                else f"/pregame/v1/matches/{match_id}/loadouts")
+        out: dict[str, list] = {}
+        try:
+            ld = self.auth.glz_get(path)
+            for entry in ld.get("Loadouts", []):
+                subj = (entry.get("Subject") or "").lower()
+                loadout = entry.get("Loadout", entry) if state == "INGAME" else entry
+                items = (loadout or {}).get("Items", {}) or {}
+
+                if not items and isinstance(loadout, dict):
+                    items = ((loadout.get("Loadout") or {}).get("Items", {}) or {})
+                if subj and items:
+                    out[subj] = valapi.loadout_weapons(items)
+        except Exception:
+            pass
+        return out
+
+    def _current_players(self, state):
+        pass
+        if state == "INGAME":
+            cg = self.auth.glz_get(f"/core-game/v1/players/{self.self_puuid}")
+            mid = cg.get("MatchID")
+            if not mid:
+                return None
+            match = self.auth.glz_get(f"/core-game/v1/matches/{mid}")
+            players = match.get("Players", [])
+            queue = (match.get("MatchmakingData") or {}).get("QueueID", "")
+            return players, mid, match.get("MapID", ""), queue, match
+        if state == "PREGAME":
+            pg = self.auth.glz_get(f"/pregame/v1/players/{self.self_puuid}")
+            mid = pg.get("MatchID")
+            if not mid:
+                return None
+            match = self.auth.glz_get(f"/pregame/v1/matches/{mid}")
+            ally = match.get("AllyTeam") or {}
+            players = []
+            for p in ally.get("Players", []):
+                p = dict(p)
+                p["TeamID"] = ally.get("TeamID", "Blue")
+                players.append(p)
+            return players, mid, match.get("MapID", ""), match.get("QueueID", ""), None
+        return None
+
+    def _seasons(self):
+
+        now = time.time()
+        if _CONTENT_CACHE["seasons"] is not None and now - _CONTENT_CACHE["at"] < 3600:
+            return _CONTENT_CACHE["seasons"]
+        try:
+            data = riot_client.pooled_request(
+                "GET",
+                f"https://shared.{self.auth.shard}.a.pvp.net/content-service/v3/content",
+                headers=self.auth.headers(), verify=True, timeout=8).json()
+            seasons = data.get("Seasons", []) if isinstance(data, dict) else []
+            if seasons:
+                _CONTENT_CACHE["seasons"] = seasons
+                _CONTENT_CACHE["at"] = now
+            return seasons or (_CONTENT_CACHE["seasons"] or [])
+        except Exception:
+            return _CONTENT_CACHE["seasons"] or []
+
+    def season_id(self) -> str | None:
+        for s in self._seasons():
+            if s.get("IsActive") and s.get("Type") == "act":
+                return s["ID"]
+        return None
+
+    def prev_season_id(self) -> str | None:
+        seasons = self._seasons()
+        current = next((s for s in seasons if s.get("IsActive") and s.get("Type") == "act"), None)
+        if not current:
+            return None
+        for s in seasons:
+            if s.get("Type") == "act" and s.get("EndTime") == current.get("StartTime"):
+                return s["ID"]
+        return None
+
+    def _fresh_mids(self, puuid):
+        hit = _MIDS_CACHE.get(puuid)
+        if hit and time.time() - hit[2] < _MIDS_TTL:
+            return hit[0], hit[1], False
+        mids: list[str] = []
+        is_comp = False
+        throttled = False
+        for queue in ("competitive", "unrated", "swiftplay", ""):
+            q = f"&queue={queue}" if queue else ""
+            hist = self.auth.pd_get(
+                f"/match-history/v1/history/{puuid}?startIndex=0&endIndex=10{q}",
+                retries=3)
+            throttled = not isinstance(hist, dict) or "History" not in hist
+            entries = [] if throttled else hist["History"] or []
+            mids = [e["MatchID"] for e in entries if e.get("MatchID")]
+            if mids or throttled:
+                is_comp = bool(mids) and queue == "competitive"
+                break
+        if not throttled:
+            _cache_put(_MIDS_CACHE, _KD_CACHE_MAX, puuid, (mids, is_comp, time.time()))
+        return mids, is_comp, throttled
+
+    def rank_info(self, puuid, season, prev_season=None):
+        out = {"tier": 0, "rr": 0, "lb": 0, "peak": 0, "wr": 0, "games": 0,
+               "prev": 0, "peak_season": season, "ok": False}
+        try:
+            hit = _RANK_CACHE.get(puuid)
+            if hit:
+                mids, is_comp, _ = self._fresh_mids(puuid)
+                rank_key = mids[0] if (mids and is_comp) else "nocomp"
+                if hit[1] is None and time.time() - hit[2] < _MIDS_TTL:
+                    _cache_put(_RANK_CACHE, _KD_CACHE_MAX, puuid, (hit[0], rank_key, hit[2]))
+                    return hit[0]
+                if hit[1] == rank_key:
+                    return hit[0]
+            else:
+                mhit = _MIDS_CACHE.get(puuid)
+                if mhit and time.time() - mhit[2] < _MIDS_TTL:
+                    rank_key = mhit[0][0] if (mhit[0] and mhit[1]) else "nocomp"
+                else:
+                    rank_key = None
+            if not season:
+                return hit[0] if hit else out
+            if riot_client.held_secs("/mmr/") > 0:
+                return out
+            r = self.auth.pd_get(f"/mmr/v1/players/{puuid}")
+            if not isinstance(r, dict) or "QueueSkills" not in r:
+                return out
+            out["ok"] = True
+            si = (((r.get("QueueSkills") or {}).get("competitive") or {})
+                  .get("SeasonalInfoBySeasonID")) or {}
+            cur = si.get(season, {}) if season else {}
+            out["tier"] = cur.get("CompetitiveTier", 0) or 0
+            out["rr"] = cur.get("RankedRating", 0) or 0
+            out["lb"] = cur.get("LeaderboardRank", 0) or 0
+
+            if prev_season:
+                out["prev"] = (si.get(prev_season, {}) or {}).get("CompetitiveTier", 0) or 0
+            peak = out["tier"]
+            for s, info in si.items():
+                for t in (info.get("WinsByTier") or {}):
+                    ti = int(t)
+                    if s in BEFORE_ASCENDANT and ti > 20:
+                        ti += 3
+                    if ti > peak:
+                        peak = ti
+                        out["peak_season"] = s
+            out["peak"] = peak
+            wins = cur.get("NumberOfWinsWithPlacements", 0) or 0
+            games = cur.get("NumberOfGames", 0) or 0
+            out["games"] = games
+            out["wr"] = round(wins / games * 100) if games else 0
+            _cache_put(_RANK_CACHE, _KD_CACHE_MAX, puuid, (out, rank_key, time.time()))
+        except Exception:
+            pass
+        return out
+
+    def act_episode(self, season_id):
+        pass
+        if not season_id:
+            return None
+        label = valapi.season_label(season_id)
+        if label:
+            return label
+
+        seasons = self._seasons()
+        act = ep = None
+        for s in seasons:
+            if (s.get("Type") or "").lower() == "episode":
+                ep = s
+            if s.get("ID", "").lower() == season_id.lower():
+                act = s
+                break
+        if not act:
+            return None
+        num = valapi._act_number(act.get("Name"))
+        ep_label = valapi._episode_label((ep or {}).get("Name"))
+        if ep_label and num is not None:
+            return f"{ep_label} Act {num}"
+        if num is not None:
+            return f"Act {num}"
+        return (act.get("Name") or "").title() or None
+
+    def level_from_history(self, puuid: str) -> int:
+        pass
+        hit = _LEVEL_CACHE.get(puuid)
+        if hit and (hit[0] > 0 or time.time() - hit[1] < _LEVEL_MISS_TTL):
+            return hit[0]
+        level = 0
+        throttled = False
+        try:
+            hist = self.auth.pd_get(
+                f"/match-history/v1/history/{puuid}?startIndex=0&endIndex=1")
+            throttled = _is_throttled(hist)
+            entries = (hist or {}).get("History", []) if isinstance(hist, dict) else []
+            mid = entries[0].get("MatchID") if entries else None
+            if mid:
+                md = _MATCH_DETAIL_CACHE.get(mid)
+                if md is None:
+                    md = self.auth.pd_get(f"/match-details/v1/matches/{mid}")
+                    throttled = throttled or _is_throttled(md)
+                    if isinstance(md, dict) and "players" in md:
+                        _cache_put(_MATCH_DETAIL_CACHE, _MATCH_DETAIL_MAX, mid, md)
+                pl = next((x for x in (md.get("players") or [])
+                           if x.get("subject") == puuid), None)
+                level = int((pl or {}).get("accountLevel", 0) or 0)
+        except Exception:
+            level, throttled = 0, True
+        if not throttled:
+            _cache_put(_LEVEL_CACHE, _KD_CACHE_MAX, puuid, (level, time.time()))
+        return level
+
+    def kd_hs(self, puuid, count=3):
+        pass
+        try:
+            rr_earned = None
+
+            mids_all, _, throttled = self._fresh_mids(puuid)
+            mids = mids_all[:count]
+            if not mids:
+                return None, None, rr_earned, ("throttled" if throttled else "empty"), None
+            cached = _KD_CACHE.get(puuid)
+            if (cached and cached[2] >= count
+                    and list(cached[1])[:count] == mids):
+                return cached[0]
+
+            def fetch_detail(mid):
+                hit = _MATCH_DETAIL_CACHE.get(mid)
+                if hit is not None:
+                    return hit
+                md = self.auth.pd_get(f"/match-details/v1/matches/{mid}", retries=3)
+                if _is_throttled(md):
+                    return "throttled"
+                if isinstance(md, dict) and "players" in md:
+                    _cache_put(_MATCH_DETAIL_CACHE, _MATCH_DETAIL_MAX, mid, md)
+                    return md
+                return None
+
+            kills = deaths = hits = heads = used = 0
+            agent_counts: dict[str, int] = {}
+            form: list[str] = []
+            map_wins: dict[str, list] = {}
+
+            with ThreadPoolExecutor(max_workers=min(3, len(mids))) as ex:
+                details = list(ex.map(fetch_detail, mids))
+            for md in details:
+                if md == "throttled":
+                    throttled = True
+                    continue
+                if not md:
+                    continue
+                for rr in md.get("roundResults", []):
+                    for ps in rr.get("playerStats", []):
+                        if ps.get("subject") == puuid:
+                            for dmg in ps.get("damage", []):
+                                hits += dmg.get("legshots", 0) + dmg.get("bodyshots", 0) + dmg.get("headshots", 0)
+                                heads += dmg.get("headshots", 0)
+                for pl in md.get("players", []):
+                    if pl.get("subject") == puuid:
+                        st = pl.get("stats", {})
+                        kills += st.get("kills", 0)
+                        deaths += st.get("deaths", 0)
+                        used += 1
+
+                        aname = UUID_TO_NAME.get((pl.get("characterId") or "").lower())
+                        if aname:
+                            agent_counts[aname] = agent_counts.get(aname, 0) + 1
+                        teams = {t.get("teamId"): t for t in md.get("teams", [])}
+                        won = (teams.get(pl.get("teamId")) or {}).get("won")
+                        if won is not None:
+                            form.append("W" if won else "L")
+                            mapn = map_name_from_path(
+                                (md.get("matchInfo", {}) or {}).get("mapId", ""))
+                            mw = map_wins.setdefault(mapn, [0, 0])
+                            mw[1] += 1
+                            if won:
+                                mw[0] += 1
+                        break
+            if used == 0:
+
+                return None, None, rr_earned, ("throttled" if throttled else "empty"), None
+            kd = round(kills / deaths, 2) if deaths else float(kills)
+            hs = round(heads / hits * 100) if hits else None
+            intel = {
+                "topAgents": [{"agent": a, "games": n} for a, n in
+                              sorted(agent_counts.items(), key=lambda x: -x[1])[:3]],
+                "form": form,
+                "streak": form_streak(form),
+                "mapWins": map_wins,
+            }
+            result = (kd, hs, rr_earned, "ok", intel)
+            if not throttled and used == len(mids):
+                _cache_put(_KD_CACHE, _KD_CACHE_MAX, puuid, (result, tuple(mids), count))
+            return result
+        except Exception:
+            return None, None, None, "error", None
+
+    def _spawn_kd_fill(self, match_id, puuids, season, prev_season) -> None:
+        pass
+        with _KD_FILL_LOCK:
+            keys = {f"{match_id}:{p}" for p in puuids} - _KD_FILLING
+            if not keys:
+                return
+            _KD_FILLING.update(keys)
+            puuids = [p for p in puuids if f"{match_id}:{p}" in keys]
+
+        def _run():
+            try:
+                def _fill_one(puuid):
+                    cache_key = f"{match_id}:{puuid}"
+                    entry = _CACHE.get(cache_key)
+                    if entry is None or entry.get("kd_done"):
+                        return
+                    entry["kd_tries"] = entry.get("kd_tries", 0) + 1
+                    kd, hs, _, status, intel = self.kd_hs(puuid, count=3)
+                    if kd is None:
+                        _log(f"kd-fill {puuid[:8]} status={status} "
+                             f"tries={entry['kd_tries']}")
+                    if kd is not None:
+                        entry["kd"], entry["hs"] = kd, hs
+                        entry["intel"] = intel
+                        entry["kd_done"] = True
+                    elif status == "empty":
+
+                        entry["kd_done"] = True
+                    elif status == "throttled" and entry["kd_tries"] < 20:
+
+                        pass
+                    elif entry["kd_tries"] >= 6:
+
+                        entry["kd_done"] = True
+
+                def _top_up(puuid):
+                    entry = _CACHE.get(f"{match_id}:{puuid}")
+                    if entry is None or entry.get("kd_full") or entry.get("kd") is None:
+                        return
+                    entry["kd_full"] = True
+                    mids, is_comp, _ = self._fresh_mids(puuid)
+                    rr_key = mids[0] if (mids and is_comp) else "nocomp"
+                    hit = _RR_CACHE.get(puuid)
+                    if hit and hit[1] == rr_key:
+                        entry["rr_earned"] = hit[0]
+                    else:
+                        cu = self.auth.pd_get(
+                            f"/mmr/v1/players/{puuid}/competitiveupdates"
+                            f"?startIndex=0&endIndex=1&queue=competitive", retries=1)
+                        m = cu.get("Matches", []) if isinstance(cu, dict) else []
+                        if m:
+                            entry["rr_earned"] = m[0].get("RankedRatingEarned")
+                        if isinstance(cu, dict) and not _is_throttled(cu):
+                            _cache_put(_RR_CACHE, _KD_CACHE_MAX, puuid,
+                                       (entry.get("rr_earned"), rr_key))
+                    kd, hs, _, status, intel = self.kd_hs(puuid, count=5)
+                    if kd is not None:
+                        entry["kd"], entry["hs"] = kd, hs
+                        entry["intel"] = intel
+
+                with ThreadPoolExecutor(max_workers=8) as ex:
+                    list(ex.map(_fill_one, puuids))
+                with ThreadPoolExecutor(max_workers=4) as ex:
+                    list(ex.map(_top_up, puuids))
+            finally:
+                with _KD_FILL_LOCK:
+                    _KD_FILLING.difference_update(keys)
+
+        threading.Thread(target=_run, daemon=True,
+                         name=f"kd-fill-{match_id[:8]}").start()
+
+    def build_scoreboard(self, include_stats=True) -> dict:
+        presences = self._presences()
+        state = self.game_state(presences)
+
+        if state == "MENUS":
+            board = dict(self.build_lobby(presences, include_stats=include_stats))
+            board["queue"] = self.queue_status()
+            board["finalScoreboard"] = self._final_scoreboard(state)
+            return board
+        if state not in ("INGAME", "PREGAME"):
+            held = self._held_board()
+            if held:
+                return held
+            board = {"state": state, "stateLabel": STATES.get(state, state),
+                     "source": "local", "players": [], "teams": {}, "parties": []}
+            board["finalScoreboard"] = self._final_scoreboard(state)
+            return board
+
+        current = self._current_players(state)
+        if not current:
+
+            held = self._held_board()
+            if held:
+                return held
+            board = {"state": "MENUS", "stateLabel": STATES["MENUS"],
+                     "source": "local", "players": [], "teams": {}, "parties": []}
+            board["finalScoreboard"] = self._final_scoreboard("MENUS")
+            return board
+
+        raw_players, match_id, map_id, queue, raw_match = current
+        puuids = [p["Subject"] for p in raw_players]
+
+        if state == "PREGAME":
+            own_team = next((p.get("TeamID") for p in raw_players
+                             if p["Subject"] == self.self_puuid), None)
+            if own_team:
+                before = len(raw_players)
+                raw_players = [p for p in raw_players
+                               if p.get("TeamID") == own_team]
+                puuids = [p["Subject"] for p in raw_players]
+                if len(raw_players) != before:
+                    _log(f"privacy gate: dropped {before - len(raw_players)} "
+                         f"non-ally players during agent select")
+
+        if match_id not in _MATCH_META:
+            _MATCH_META.clear()
+            _MATCH_META[match_id] = {}
+        meta = _MATCH_META[match_id]
+
+        names = meta.get("names") or {}
+        missing_names = [p for p in puuids if p not in names]
+        tries_key = f"name_tries:{state}"
+        if missing_names and meta.get(tries_key, 0) < 8:
+            meta[tries_key] = meta.get(tries_key, 0) + 1
+            names = {**names, **self.reveal_names(missing_names)}
+            meta["names"] = names
+        ld_key = f"loadouts:{state}"
+        if not meta.get(ld_key):
+            ld = self.loadouts(state, match_id)
+            if ld:
+                meta[ld_key] = ld
+            weapons_by_puuid = ld
+        else:
+            weapons_by_puuid = meta[ld_key]
+
+        pmap = self.party_map(puuids, presences,
+                              {p["Subject"]: p.get("TeamID") for p in raw_players})
+        party_lookup = {}
+        parties_out = []
+        numbers = meta.setdefault("party_numbers", {})
+        taken: set[int] = set()
+        for g in pmap:
+            known = sorted({numbers[m] for m in g["members"] if m in numbers} - taken)
+            g["number"] = known[0] if known else max([0, *numbers.values(), *taken]) + 1
+            taken.add(g["number"])
+            numbers.update(dict.fromkeys(g["members"], g["number"]))
+        for g in sorted(pmap, key=lambda g: g["number"]):
+            number = g["number"]
+            color = party_color(number - 1)
+            parties_out.append({"id": g["id"], "color": color, "number": number,
+                                "size": len(g["members"]), "members": g["members"],
+                                "inferred": g["inferred"]})
+            for m in g["members"]:
+                party_lookup[m] = {"id": g["id"], "color": color, "number": number,
+                                   "inferred": g["inferred"]}
+
+        season = self.season_id()
+        prev_season = self.prev_season_id()
+        self_team = next((p["TeamID"] for p in raw_players
+                          if p["Subject"] == self.self_puuid), "Blue")
+
+        uncached_kd: list[str] = []
+
+        def fetch_player(p):
+            puuid = p["Subject"]
+            ident = p.get("PlayerIdentity", {}) or {}
+            cache_key = f"{match_id}:{puuid}"
+            cached = _CACHE.get(cache_key)
+            if cached is None:
+                rk = self.rank_info(puuid, season, prev_season)
+
+                cached = {"rk": rk, "prev": rk.get("prev", 0),
+                          "kd": None, "hs": None, "rr_earned": None,
+                          "kd_done": False}
+                if not rk.get("ok"):
+
+                    cached["rank_at"] = time.time()
+                _cache_put(_CACHE, _KD_CACHE_MAX, cache_key, cached)
+                if include_stats:
+                    uncached_kd.append(puuid)
+            else:
+                if (not cached["rk"].get("ok")
+                        and time.time() - cached.get("rank_at", 0.0) > 20.0):
+
+                    rk = self.rank_info(puuid, season, prev_season)
+                    if rk.get("ok"):
+                        cached["rk"], cached["prev"] = rk, rk.get("prev", 0)
+                    else:
+                        cached["rank_at"] = time.time()
+                if include_stats and not cached.get("kd_done"):
+                    uncached_kd.append(puuid)
+            name, level, level_hidden = self.resolve_identity(puuid, names, ident)
+
+            if (level or 0) <= 0:
+                recovered = self.level_from_history(puuid)
+                if recovered > 0:
+                    level = recovered
+            return puuid, cached, name, level, level_hidden
+
+        with ThreadPoolExecutor(max_workers=min(6, len(raw_players) or 1)) as ex:
+            resolved = {r[0]: r[1:] for r in ex.map(fetch_player, raw_players)}
+
+        if uncached_kd:
+            self._spawn_kd_fill(match_id, uncached_kd, season, prev_season)
+
+        players = []
+        for p in raw_players:
+            puuid = p["Subject"]
+            ident = p.get("PlayerIdentity", {}) or {}
+            cached, name, level, level_hidden = resolved[puuid]
+            if name == _fallback_name(puuid):
+
+                agent_meta = resolve_agent(p.get("CharacterID", "") or "") or {}
+                if state != "PREGAME" and agent_meta.get("name"):
+                    name = agent_meta["name"]
+                else:
+                    name = f"Player {len(players) + 1}"
+            rk = cached["rk"]
+            weapons = weapons_by_puuid.get(puuid.lower(), [])
+            vandal = next((w["skin"] for w in weapons
+                           if w["weapon"] == "Vandal" and w.get("skin")), None)
+            smurf, smurf_reasons = compute_smurf(
+                level=level, peak_tier=rk["peak"], rank_tier=rk["tier"],
+                kd=cached["kd"], win_rate=rk["wr"], games=rk["games"])
+            players.append(assemble_player(
+                puuid=puuid,
+                name=name,
+                name_hidden=ident.get("Incognito", False),
+                team=p.get("TeamID", "Blue"),
+                is_self=(puuid == self.self_puuid),
+                agent_id=p.get("CharacterID", ""),
+                selection=p.get("CharacterSelectionState") if state == "PREGAME" else None,
+                rank_tier=rk["tier"], rr=rk["rr"], leaderboard=rk["lb"],
+                peak_tier=rk["peak"], prev_tier=cached["prev"],
+                win_rate=rk["wr"], games=rk["games"],
+                kd=cached["kd"], hs=cached["hs"],
+                level=level,
+                level_hidden=level_hidden,
+                party=party_lookup.get(puuid),
+                skin=vandal,
+                weapons=weapons,
+                peak_act=self.act_episode(rk.get("peak_season")),
+                rr_earned=cached.get("rr_earned"),
+                intel=cached.get("intel"),
+                player_card=valapi.player_card(ident.get("PlayerCardID")),
+                title=valapi.title_text(ident.get("PlayerTitleID")),
+                smurf=smurf, smurf_reasons=smurf_reasons,
+            ))
+            players[-1]["statsPending"] = bool(include_stats and not cached.get("kd_done"))
+
+        if state == "INGAME":
+            self._track_final_match(match_id, self_team)
+
+        map_name = map_name_from_path(map_id)
+        score = self.match_score(presences) if state == "INGAME" else None
+        if score and (queue or "").lower() in ("deathmatch", "hurm"):
+            score["round"] = None
+        if score:
+            score["rounds"] = track_rounds(match_id, score)
+        board = finalize(players, state=state, source="local", self_team=self_team,
+                         map_name=map_name, queue=queue, match_id=match_id,
+                         parties=parties_out, map_splash=valapi.map_splash(map_name),
+                         score=score)
+        board["riotRequests"] = self.auth.req_count
+        board["finalScoreboard"] = self._final_scoreboard(state, match_id)
+
+        _LAST_BOARD["board"] = board
+        _LAST_BOARD["at"] = time.time()
+        _LAST_BOARD["puuid"] = self.self_puuid
+        return board
+
+    def _track_final_match(self, match_id: str, self_team: str) -> None:
+        if _FINAL_SB["matchId"] != match_id:
+            _FINAL_SB.update(matchId=match_id, selfTeam=self_team,
+                             startedAt=time.time(), lastTry=0.0, endedAt=None,
+                             nameTries=0, nameTryAt=0.0)
+            _log(f"final scoreboard: tracking match {match_id[:8]}...")
+
+    def _names_for(self, puuids) -> dict:
+        out: dict[str, str] = {}
+        missing: list[str] = []
+        for p in puuids or []:
+            if not p:
+                continue
+            nm = _NAME_CACHE.get(p.lower())
+            if nm:
+                out[p] = nm
+            else:
+                missing.append(p)
+        if missing:
+            try:
+                found = self.reveal_names(missing)
+            except Exception:
+                found = {}
+            for k, v in found.items():
+                if k and v:
+                    out[k] = v
+                    _cache_put(_NAME_CACHE, _NAME_CACHE_MAX, k.lower(), v)
+        return out
+
+    def _backfill_names(self, rep: dict) -> dict:
+        if not isinstance(rep, dict) or not (rep.get("players") or []):
+            return rep
+        missing = sorted({r["puuid"] for r in rep["players"]
+                          if isinstance(r, dict) and r.get("puuid")
+                          and str(r.get("name", "")).startswith(("Player-", "Unknown"))})
+        if not missing or _FINAL_SB.get("nameTries", 0) >= 10:
+            return rep
+        now = time.time()
+        if now - _FINAL_SB.get("nameTryAt", 0.0) < 30.0:
+            return rep
+        _FINAL_SB["nameTryAt"] = now
+        _FINAL_SB["nameTries"] = _FINAL_SB.get("nameTries", 0) + 1
+        try:
+            found = self.reveal_names(missing)
+        except Exception:
+            return rep
+        for r in rep["players"]:
+            nm = found.get(r.get("puuid")) or _NAME_CACHE.get(
+                (r.get("puuid") or "").lower())
+            if nm and str(r.get("name", "")).startswith(("Player-", "Unknown")):
+                r["name"] = nm
+        return rep
+
+    def _final_scoreboard(self, state: str,
+                          current_match_id: str | None = None) -> dict | None:
+        rep = _FINAL_SB["report"]
+        mid = _FINAL_SB["matchId"]
+        if not mid:
+            return rep
+
+        if state in ("INGAME", "PREGAME"):
+            if rep and rep.get("matchId") == mid and current_match_id == mid:
+                return rep
+            if current_match_id and current_match_id != mid:
+                return None
+            return rep if (rep and rep.get("matchId") == mid) else None
+
+        if _FINAL_SB["endedAt"] is None:
+            _FINAL_SB["endedAt"] = time.time()
+
+        if rep and rep.get("matchId") == mid:
+            return self._backfill_names(rep)
+        if _FINAL_SB["endedAt"] and time.time() - _FINAL_SB["endedAt"] > _FS_GIVE_UP:
+            return rep
+        if time.time() - _FINAL_SB["lastTry"] < _FS_POLL_SECS:
+            return rep
+        _FINAL_SB["lastTry"] = time.time()
+        try:
+            md = self.auth.pd_get(f"/match-details/v1/matches/{mid}")
+        except Exception:
+            return rep
+        if not isinstance(md, dict) or not (md.get("players") or []):
+            return rep
+        built = build_final_scoreboard(md, match_id=mid,
+                                       self_team=_FINAL_SB["selfTeam"],
+                                       self_puuid=self.self_puuid,
+                                       name_map=self._names_for(
+                                           [p.get("subject")
+                                            for p in md.get("players") or []]))
+        if built:
+            _FINAL_SB["report"] = built
+            _log("final scoreboard: fetched from match-details")
+            return built
+        return rep
+
+    def _held_board(self):
+        b = _LAST_BOARD.get("board")
+        if b and _LAST_BOARD.get("puuid") == self.self_puuid:
+            held = dict(b)
+            held["held"] = True
+            held["stateLabel"] = "Last match"
+            return held
+        return None
+
+    def queue_status(self) -> dict:
+        pass
+        now = time.time()
+        if _QUEUE_CACHE["data"] is not None and now - _QUEUE_CACHE["at"] < 3.0:
+            return _QUEUE_CACHE["data"]
+        from riot_client import party_snapshot
+        try:
+            snap = party_snapshot(self.auth)
+        except Exception:
+            snap = {"available": False}
+        if snap.get("throttled") and _QUEUE_CACHE["data"]:
+            return _QUEUE_CACHE["data"]
+        snap.pop("throttled", None)
+        _QUEUE_CACHE.update(at=now, data=snap)
+        return snap
+
+    def build_lobby(self, presences, include_stats=False) -> dict:
+        pass
+        members = self.party_members(presences)
+        puuids = [m["puuid"] for m in members]
+
+        key = tuple(sorted(puuids))
+        now = time.time()
+        for slot in ((True,) if include_stats else (False, True)):
+            hit = _LOBBY_CACHE.get(slot)
+            if hit and hit["key"] == key and now - hit["at"] < 20:
+                return hit["board"]
+
+        names = self.reveal_names(puuids)
+
+        season = self.season_id()
+        prev_season = self.prev_season_id()
+        multi = len(members) > 1
+        party = {"id": "lobby", "color": party_color(0), "number": 1,
+                 "size": len(members)} if multi else None
+
+        def fetch_member(m):
+            puuid = m["puuid"]
+            rk = self.rank_info(puuid, season, prev_season)
+            kd = hs = intel = None
+            if include_stats:
+                kd, hs, _, _, intel = self.kd_hs(puuid, count=5)
+
+            level = m.get("level", 0) or 0
+            if level <= 0:
+                level = self.level_from_history(puuid)
+            return m, rk, kd, hs, level, intel
+
+        with ThreadPoolExecutor(max_workers=min(6, len(members) or 1)) as ex:
+            fetched = list(ex.map(fetch_member, members))
+
+        players = []
+        for m, rk, kd, hs, lvl, intel in fetched:
+            puuid = m["puuid"]
+            ident = {"AccountLevel": lvl, "HideAccountLevel": m.get("level_hidden", False),
+                     "Incognito": m.get("incognito", False)}
+            name, level, level_hidden = self.resolve_identity(puuid, names, ident)
+            smurf, smurf_reasons = compute_smurf(
+                level=level, peak_tier=rk["peak"], rank_tier=rk["tier"],
+                kd=kd, win_rate=rk["wr"], games=rk["games"])
+            players.append(assemble_player(
+                puuid=puuid, name=name, name_hidden=m.get("incognito", False), team="Blue",
+                is_self=(puuid == self.self_puuid), agent_id="",
+                rank_tier=rk["tier"], rr=rk["rr"], leaderboard=rk["lb"],
+                peak_tier=rk["peak"], prev_tier=rk.get("prev", 0),
+                win_rate=rk["wr"], games=rk["games"], kd=kd, hs=hs,
+                intel=intel,
+                level=level, level_hidden=level_hidden,
+                party=party, peak_act=self.act_episode(rk.get("peak_season")),
+                smurf=smurf, smurf_reasons=smurf_reasons,
+                player_card=valapi.player_card(m.get("card")),
+                title=valapi.title_text(m.get("title")),
+            ))
+            players[-1]["playerCardSmall"] = valapi.player_card(m.get("card"), "small")
+
+        parties_out = [{**party, "members": puuids}] if party else []
+        board = finalize(players, state="MENUS", source="local", self_team="Blue",
+                         map_name=None, queue="Lobby", match_id="lobby",
+                         parties=parties_out)
+        board["riotRequests"] = self.auth.req_count
+        _LOBBY_CACHE[bool(include_stats)] = {"key": key, "at": now, "board": board}
+        return board
+
+    def player_career(self, puuid: str, count: int = 8) -> dict:
+        pass
+        try:
+            hist = self.auth.pd_get(
+                f"/match-history/v1/history/{puuid}?startIndex=0&endIndex={count}")
+            entries = hist.get("History", []) or [] if isinstance(hist, dict) else []
+        except Exception:
+            entries = []
+        mids = [h["MatchID"] for h in entries if h.get("MatchID")]
+
+        def fetch_detail(mid):
+            try:
+                return self._career_match(
+                    self.auth.pd_get(f"/match-details/v1/matches/{mid}"), puuid, mid)
+            except Exception:
+                return None
+
+        matches, mate_puuids = [], set()
+        if mids:
+            with ThreadPoolExecutor(max_workers=min(4, len(mids))) as ex:
+                for row in ex.map(fetch_detail, mids):
+                    if row:
+                        matches.append(row)
+                        mate_puuids.update(m["puuid"] for m in row["teammates"] + row.get("opponents", []))
+
+        names = self.reveal_names(list(mate_puuids)) if mate_puuids else {}
+        for row in matches:
+            for mate in row["teammates"] + row.get("opponents", []):
+                mate["name"] = names.get(mate["puuid"]) or _fallback_name(mate["puuid"])
+
+        updates = {}
+        if (riot_client.held_secs("/mmr/") <= 0
+                and any((row.get("mode") or "").lower() == "competitive" for row in matches)):
+            try:
+                cu = self.auth.pd_get(
+                    f"/mmr/v1/players/{puuid}/competitiveupdates"
+                    f"?startIndex=0&endIndex={min(20, max(10, count))}&queue=competitive")
+                for update in (cu or {}).get("Matches", []) or []:
+                    if update.get("MatchID"):
+                        updates[update["MatchID"]] = update
+            except Exception:
+                updates = {}
+        for row in matches:
+            update = updates.get(row.get("matchId"))
+            if not update:
+                continue
+            tier = update.get("TierAfterUpdate")
+            rank = rank_from_tier(tier or 0)
+            row.update({
+                "rrDelta": update.get("RankedRatingEarned"),
+                "tierAfter": tier,
+                "rrAfter": update.get("RankedRatingAfterUpdate"),
+                "rankAfter": rank.get("name"),
+                "rankColor": rank.get("color"),
+                "rankIcon": valapi.rank_icon(tier or 0) if tier else None,
+            })
+
+        return {"source": "local", "puuid": puuid, "matches": matches,
+                **_career_summary(matches)}
+
+    def _career_match(self, md: dict, puuid: str, mid: str = "") -> dict | None:
+        info = md.get("matchInfo", {}) or {}
+        players = md.get("players", []) or []
+        subj = next((p for p in players if p.get("subject") == puuid), None)
+        if not subj:
+            return None
+
+        st = subj.get("stats", {}) or {}
+        team_id = subj.get("teamId")
+        teams = {t.get("teamId"): t for t in md.get("teams", []) if t.get("teamId")}
+        mine = teams.get(team_id, {})
+        won = mine.get("won")
+        rounds = max((t.get("roundsWon", 0) for t in teams.values()), default=0) +            min((t.get("roundsWon", 0) for t in teams.values()), default=0)
+
+        hits_by_player: dict[str, int] = {}
+        heads_by_player: dict[str, int] = {}
+        for rr in md.get("roundResults", []):
+            for ps in rr.get("playerStats", []):
+                player_id = ps.get("subject")
+                if not player_id:
+                    continue
+                for dmg in ps.get("damage", []):
+                    hits_by_player[player_id] = hits_by_player.get(player_id, 0) + \
+                        dmg.get("legshots", 0) + dmg.get("bodyshots", 0) + dmg.get("headshots", 0)
+                    heads_by_player[player_id] = heads_by_player.get(player_id, 0) + dmg.get("headshots", 0)
+
+        kills, deaths = st.get("kills", 0), st.get("deaths", 0)
+        hits = hits_by_player.get(puuid, 0)
+        heads = heads_by_player.get(puuid, 0)
+        agent = resolve_agent((subj.get("characterId") or "")) or {}
+        teammates, opponents = [], []
+        for player in players:
+            player_id = player.get("subject")
+            if not player_id or player_id == puuid or not team_id or team_id == "Neutral":
+                continue
+            player_stats = player.get("stats", {}) or {}
+            teammate_agent = resolve_agent(player.get("characterId") or "") or {}
+            teammate_hits = hits_by_player.get(player_id, 0)
+            roster = teammates if player.get("teamId") == team_id else opponents
+            tier = int(player.get("competitiveTier") or 0)
+            rank = rank_from_tier(tier)
+            roster.append({
+                "puuid": player_id,
+                "rankTier": tier, "rank": rank["name"], "rankColor": rank["color"],
+                "rankIcon": valapi.cached_rank_icon(tier),
+                "agent": teammate_agent.get("name", "Unknown"),
+                "agentPortrait": teammate_agent.get("portrait"),
+                "agentColor": teammate_agent.get("color", "#8B978F"),
+                "level": (player.get("accountLevel") or
+                          ((player.get("PlayerIdentity") or player.get("playerIdentity") or {})
+                           .get("AccountLevel"))),
+                "kills": player_stats.get("kills", 0),
+                "deaths": player_stats.get("deaths", 0),
+                "assists": player_stats.get("assists", 0),
+                "acs": round(player_stats.get("score", 0) / rounds) if rounds else 0,
+                "shotsHit": teammate_hits,
+                "headshots": heads_by_player.get(player_id, 0),
+            })
+        party_id = subj.get("partyId")
+        party_size = (sum(p.get("partyId") == party_id for p in players)
+                      if party_id else 1)
+        queue = info.get("queueID") or info.get("queueId") or ""
+        map_name = map_name_from_path(info.get("mapId", ""))
+        opponent_score = next((team.get("roundsWon", 0) for tid, team in teams.items()
+                               if tid != team_id), None)
+        return {
+            "matchId": mid or info.get("matchId", ""),
+            "map": map_name,
+            "mapSplash": valapi.map_splash(map_name),
+            "mode": _mode_label(queue),
+            "startMillis": info.get("gameStartMillis", 0),
+            "result": "Victory" if won is True else "Defeat" if won is False else "Draw",
+            "team": team_id,
+            "score": mine.get("roundsWon", 0),
+            "opponentScore": opponent_score,
+            "agent": agent.get("name", "Unknown"),
+            "agentPortrait": agent.get("portrait"),
+            "agentColor": agent.get("color", "#8B978F"),
+            "kills": kills,
+            "deaths": deaths,
+            "assists": st.get("assists", 0),
+            "kd": round(kills / deaths, 2) if deaths else float(kills),
+            "acs": round(st.get("score", 0) / rounds) if rounds else 0,
+            "hsPct": round(heads / hits * 100) if hits else None,
+            "partySize": max(1, party_size),
+            "scores": {tid: team.get("roundsWon", 0) for tid, team in teams.items()},
+            "teammates": teammates,
+            "opponents": opponents,
+        }
+
+    def match_detail(self, match_id: str, subject: str | None = None) -> dict:
+        pass
+        md = self.auth.pd_get(f"/match-details/v1/matches/{match_id}")
+        if not isinstance(md, dict) or "players" not in md:
+            return {"error": "Match details unavailable."}
+        info = md.get("matchInfo", {}) or {}
+        teams = {t.get("teamId"): t for t in md.get("teams", []) if t.get("teamId")}
+        rounds = sum(t.get("roundsWon", 0) for t in teams.values())            or len(md.get("roundResults", [])) or 1
+
+        hits: dict = {}
+        heads: dict = {}
+        dealt: dict = {}
+        first_k: dict = {}
+        first_d: dict = {}
+        multi: dict = {}
+        aces: dict = {}
+        plants: dict = {}
+        defuses: dict = {}
+        subject_team = next((p.get("teamId") for p in md.get("players", []) or []
+                             if p.get("subject") == subject), None)
+        timeline = []
+        queue_id = (info.get("queueID") or info.get("queueId") or "").lower()
+        round_mode = (len(md.get("roundResults", []) or []) >= 2
+                      and queue_id not in ("deathmatch", "hurm"))
+        for rr in md.get("roundResults", []):
+            round_kills = []
+            for ps in rr.get("playerStats", []):
+                s = ps.get("subject")
+                for dmg in ps.get("damage", []):
+                    hits[s] = hits.get(s, 0) + dmg.get("legshots", 0) +                        dmg.get("bodyshots", 0) + dmg.get("headshots", 0)
+                    heads[s] = heads.get(s, 0) + dmg.get("headshots", 0)
+                    dealt[s] = dealt.get(s, 0) + (dmg.get("damage", 0) or 0)
+                kills = ps.get("kills", []) or []
+                round_kills.extend(kills)
+                if len(kills) >= 3:
+                    multi[s] = multi.get(s, 0) + 1
+                if len(kills) >= 5:
+                    aces[s] = aces.get(s, 0) + 1
+            if round_kills:
+                first = min(round_kills, key=lambda k: k.get("roundTime", k.get("timeSinceRoundStartMillis", 0)) or 0)
+                if first.get("killer"):
+                    first_k[first["killer"]] = first_k.get(first["killer"], 0) + 1
+                if first.get("victim"):
+                    first_d[first["victim"]] = first_d.get(first["victim"], 0) + 1
+            if rr.get("bombPlanter"):
+                plants[rr["bombPlanter"]] = plants.get(rr["bombPlanter"], 0) + 1
+            if rr.get("bombDefuser"):
+                defuses[rr["bombDefuser"]] = defuses.get(rr["bombDefuser"], 0) + 1
+            if subject and subject_team:
+                timeline.append({
+                    "n": (rr.get("roundNum") or 0) + 1,
+                    "won": rr.get("winningTeam") == subject_team,
+                    "how": rr.get("roundResult") or rr.get("roundResultCode"),
+                    "kills": sum(1 for k in round_kills if k.get("killer") == subject),
+                    "died": any(k.get("victim") == subject for k in round_kills),
+                })
+
+        raw = md.get("players", []) or []
+        names = self.reveal_names([p.get("subject") for p in raw])
+        season = self.season_id()
+        prev_season = self.prev_season_id()
+
+        def fetch_rank(player):
+            puuid = player.get("subject")
+            return puuid, self.rank_info(puuid, season, prev_season) if puuid else {}
+
+        with ThreadPoolExecutor(max_workers=min(3, len(raw) or 1)) as ex:
+            ranks = dict(ex.map(fetch_rank, raw))
+        players = []
+        for p in raw:
+            sub = p.get("subject")
+            st = p.get("stats", {}) or {}
+            agent = resolve_agent(p.get("characterId") or "") or {}
+            identity = p.get("PlayerIdentity") or p.get("playerIdentity") or {}
+            rank = ranks.get(sub) or {}
+            rank_meta = rank_from_tier(rank.get("tier") or 0)
+            peak_meta = rank_from_tier(rank.get("peak") or 0)
+            k, d, a = st.get("kills", 0), st.get("deaths", 0), st.get("assists", 0)
+            th = hits.get(sub, 0)
+            stored = (f"{p.get('gameName')}#{p.get('tagLine')}"
+                      if p.get("gameName") else None)
+            players.append({
+                "puuid": sub,
+                "name": names.get(sub) or stored or _fallback_name(sub),
+                "team": p.get("teamId"),
+                "agent": agent.get("name", "Unknown"),
+                "agentPortrait": agent.get("portrait"),
+                "agentColor": agent.get("color", "#8B978F"),
+                "kills": k, "deaths": d, "assists": a,
+                "kd": round(k / d, 2) if d else float(k),
+                "acs": round(st.get("score", 0) / rounds) if rounds else 0,
+                "hsPct": round(heads.get(sub, 0) / th * 100) if th else None,
+                "adr": round(dealt.get(sub, 0) / rounds) if (round_mode and dealt) else None,
+                "firstBloods": first_k.get(sub, 0) if round_mode else None,
+                "firstDeaths": first_d.get(sub, 0) if round_mode else None,
+                "multiKills": multi.get(sub, 0) if round_mode else None,
+                "aces": aces.get(sub, 0) if round_mode else None,
+                "plants": plants.get(sub, 0) if round_mode else None,
+                "defuses": defuses.get(sub, 0) if round_mode else None,
+                "rankTier": rank_meta["tier"], "rank": rank_meta["name"],
+                "rankColor": rank_meta["color"], "rankIcon": valapi.rank_icon(rank_meta["tier"]),
+                "rr": rank.get("rr") or 0, "leaderboard": rank.get("lb") or 0,
+                "peakRankTier": peak_meta["tier"], "peakRank": peak_meta["name"],
+                "peakColor": peak_meta["color"], "peakIcon": valapi.rank_icon(peak_meta["tier"]),
+                "level": p.get("accountLevel") or identity.get("AccountLevel") or 0,
+                "playerCard": valapi.player_card(identity.get("PlayerCardID") or
+                                                   p.get("playerCard") or p.get("playerCardId")),
+                "isSubject": sub == subject,
+            })
+        players.sort(key=lambda x: -x["acs"])
+
+        won = None
+        if subject:
+            sp = next((p for p in raw if p.get("subject") == subject), None)
+            if sp:
+                won = teams.get(sp.get("teamId"), {}).get("won")
+        if won is False and not any(t.get("won") for t in teams.values()):
+            round_scores = {t.get("roundsWon", 0) for t in teams.values()}
+            won = "draw" if len(round_scores) == 1 else None
+        subject_team = next((p.get("team") for p in players if p.get("isSubject")), None)
+        if players:
+            players[0]["isMatchMvp"] = True
+        team_mvp = next((p for p in players if p.get("team") == subject_team), None)
+        if team_mvp:
+            team_mvp["isTeamMvp"] = True
+        team_stats = {}
+        for team_id in teams:
+            team_players = [p for p in players if p.get("team") == team_id]
+            rated = [p.get("rankTier") for p in team_players if (p.get("rankTier") or 0) > 0]
+            avg_tier = round(sum(rated) / len(rated)) if rated else 0
+            avg_rank = rank_from_tier(avg_tier)
+            team_stats[team_id] = {"avgRankTier": avg_tier, "avgRank": avg_rank["name"],
+                                   "avgRankColor": avg_rank["color"],
+                                   "rankIcon": valapi.rank_icon(avg_tier) if avg_tier else None}
+        map_name = map_name_from_path(info.get("mapId", ""))
+        return {
+            "matchId": match_id,
+            "map": map_name,
+            "mapSplash": valapi.map_splash(map_name),
+            "mode": _mode_label(info.get("queueID") or info.get("queueId") or ""),
+            "scores": {tid: t.get("roundsWon", 0) for tid, t in teams.items()},
+            "result": ("Victory" if won is True else "Defeat" if won is False
+                       else ("Draw" if won is not None else None)),
+            "players": players, "teamStats": team_stats,
+            "rounds": timeline if round_mode else [],
+        }
+
+def _career_summary(matches: list) -> dict:
+    pass
+    n = len(matches)
+    if not n:
+        return {"averages": {"games": 0, "wins": 0, "winRate": 0, "kd": 0,
+                             "kills": 0, "deaths": 0, "assists": 0, "hsPct": 0},
+                "coPlayers": [], "agentPool": [], "mapStats": []}
+    wins = sum(1 for m in matches if m["result"] == "Victory")
+    k = sum(m["kills"] for m in matches)
+    d = sum(m["deaths"] for m in matches)
+    a = sum(m["assists"] for m in matches)
+    hs = [m["hsPct"] for m in matches if m.get("hsPct") is not None]
+
+    seen: dict[str, dict] = {}
+    for m in matches:
+        for mate in m["teammates"]:
+            pid = mate.get("puuid")
+            if not pid:
+                continue
+            e = seen.setdefault(pid, {"puuid": pid, "name": mate.get("name"),
+                                      "sharedMatches": 0, "agents": set()})
+            e["sharedMatches"] += 1
+            e["name"] = mate.get("name") or e["name"]
+            if mate.get("agent"):
+                e["agents"].add(mate["agent"])
+    co_players = sorted(
+        ({"puuid": e["puuid"], "name": e["name"], "sharedMatches": e["sharedMatches"],
+          "agents": sorted(e["agents"]), "isParty": e["sharedMatches"] >= 2}
+         for e in seen.values()),
+        key=lambda x: x["sharedMatches"], reverse=True)[:6]
+
+    def _tally(key):
+        out: dict[str, list] = {}
+        for m in matches:
+            name = m.get(key)
+            if not name or name == "Unknown":
+                continue
+            t = out.setdefault(name, [0, 0])
+            t[1] += 1
+            if m["result"] == "Victory":
+                t[0] += 1
+        return out
+
+    agent_pool = [
+        {"agent": ag, "games": g, "winRate": round(100 * w / g),
+         "portrait": (resolve_agent(ag) or {}).get("portrait"),
+         "color": (resolve_agent(ag) or {}).get("color", "#8B978F")}
+        for ag, (w, g) in sorted(_tally("agent").items(), key=lambda x: -x[1][1])
+    ][:5]
+    map_stats = [
+        {"map": mp, "games": g, "wins": w, "winRate": round(100 * w / g)}
+        for mp, (w, g) in sorted(_tally("map").items(), key=lambda x: -x[1][1])
+    ]
+
+    return {
+        "averages": {
+            "games": n, "wins": wins, "winRate": round(100 * wins / n),
+            "kills": round(k / n, 1), "deaths": round(d / n, 1), "assists": round(a / n, 1),
+            "kd": round(k / d, 2) if d else float(k),
+            "hsPct": round(sum(hs) / len(hs)) if hs else None,
+        },
+        "coPlayers": co_players,
+        "agentPool": agent_pool,
+        "mapStats": map_stats,
+    }
+
+def _team_stats(team_players: list) -> dict:
+    pass
+    ranked = [p["rankTier"] for p in team_players if (p.get("rankTier") or 0) > 0]
+    kds = [p["kd"] for p in team_players if p.get("kd") is not None]
+    wrs = [p["winRate"] for p in team_players if p.get("winRate") is not None and p.get("games")]
+    avg_tier = sum(ranked) / len(ranked) if ranked else 0
+    rank_meta = rank_from_tier(round(avg_tier)) if ranked else rank_from_tier(0)
+    return {
+        "avgRankTier": round(avg_tier, 2),
+        "avgRank": rank_meta["name"],
+        "rankColor": rank_meta["color"],
+        "rankIcon": valapi.rank_icon(round(avg_tier)) if ranked else None,
+        "avgKd": round(sum(kds) / len(kds), 2) if kds else None,
+        "avgWinRate": round(sum(wrs) / len(wrs)) if wrs else None,
+        "smurfCount": sum(1 for p in team_players if p.get("smurf")),
+        "size": len(team_players),
+    }
+
+def _win_prob(self_stats: dict, enemy_stats: dict) -> int | None:
+    pass
+    prob = 50.0
+    used = False
+    if self_stats["avgRankTier"] and enemy_stats["avgRankTier"]:
+        prob += (self_stats["avgRankTier"] - enemy_stats["avgRankTier"]) * 5
+        used = True
+    self_kd = self_stats["avgKd"]
+    enemy_kd = enemy_stats["avgKd"]
+    if self_kd is not None and enemy_kd is not None:
+        prob += (self_kd - enemy_kd) * 20
+        used = True
+    return max(5, min(95, round(prob))) if used else None
+
+def finalize(players, *, state, source, self_team, map_name, queue, match_id,
+             parties, map_splash=None, score=None):
+    pass
+
+    for p in players:
+        mw = p.pop("mapWins", None) or {}
+        w, g = (mw.get(map_name) or [0, 0]) if map_name else (0, 0)
+        p["mapWinRate"] = {"winRate": round(100 * w / g), "games": g} if g else None
+    players.sort(key=lambda x: (x["team"] != self_team, -x["rankTier"], -(x["level"] or 0)))
+    teams = {}
+    for p in players:
+        teams.setdefault(p["team"], []).append(p)
+
+    team_stats = {tid: _team_stats(tp) for tid, tp in teams.items()}
+
+    win_prob = None
+    if state == "INGAME" and len(team_stats) == 2 and self_team in team_stats:
+        enemy_team = next(t for t in team_stats if t != self_team)
+        win_prob = _win_prob(team_stats[self_team], team_stats[enemy_team])
+
+    locked = sum(1 for p in players if p.get("selection") == "locked")
+
+    side = ({"Red": "Attacker", "Blue": "Defender"}.get(self_team)
+            if state in ("INGAME", "PREGAME") else None)
+    return {
+        "state": state,
+        "stateLabel": STATES.get(state, state),
+        "source": source,
+        "map": map_name,
+        "mapSplash": map_splash,
+        "mode": _mode_label(queue),
+        "matchId": match_id,
+        "selfTeam": self_team,
+        "side": side,
+        "players": players,
+        "teams": teams,
+        "teamStats": team_stats,
+        "winProb": win_prob,
+        "parties": parties,
+        "score": score,
+        "lockProgress": {"locked": locked, "total": len(players)} if state == "PREGAME" else None,
+    }
