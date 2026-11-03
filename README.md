@@ -8,6 +8,8 @@ one native Windows app. No web dashboard, no browser, no server. Just Python.**
 Live Board · Performance · Encounters · Sessions · Collection ·
 **Crosshair Overlay** · **Display (ChromaDesk)**
 
+<img src="docs/live-board.png" alt="Valtix Live Board (demo data)" width="90%">
+
 </div>
 
 ---
@@ -82,6 +84,25 @@ never touch game processes at all.
 
 Plus: ⚙ Settings dialog with every switch, queue & match alerts with toasts
 and sounds, dark title bar, window/tab memory, and a two-press **Quit Valtix**.
+
+---
+
+## 🖼️ Screenshots
+
+<div align="center">
+
+**Crosshair Overlay — editor with live preview and preset library**
+
+<img src="docs/crosshair.png" alt="Crosshair tab" width="90%">
+
+**Display workspace — ChromaDesk engine (resolution, vibrance, saturation)**
+
+<img src="docs/display.png" alt="Display tab" width="90%">
+
+</div>
+
+*(Live Board shown above is the built-in demo mode — no VALORANT needed for a
+tour.)*
 
 ---
 
