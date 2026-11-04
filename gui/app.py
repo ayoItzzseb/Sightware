@@ -67,6 +67,7 @@ class SightwareApp(tk.Tk):
         self.configure(background=BG)
         self.geometry("1280x820")
         self.minsize(1080, 660)
+        self._frameless = True   # custom title bar replaces the native caption
 
         # core first: window restore and the art cache both read settings
         self.core = AppCore()
@@ -111,6 +112,8 @@ class SightwareApp(tk.Tk):
 
         self.core.start_services()
         self.after(500, self._start_crosshair_engine)
+        self.bind("<Map>", lambda e: self.after(10, self._apply_frameless_style))
+        self.after(80, self._apply_frameless_style)
         self.after(2500, self._startup_update_check)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind("<F5>", lambda e: self.force_refresh())
@@ -268,6 +271,34 @@ class SightwareApp(tk.Tk):
             self.show_tab("crosshair")
             self.toast.show(f'Loaded "{name}".', kind="ok")
 
+    # ── frameless window style ─────────────────────────────────
+    def _apply_frameless_style(self) -> None:
+        """Remove the native caption while keeping WS_THICKFRAME: the window
+        loses its title bar but keeps native resize edges, Aero Snap and the
+        taskbar button. Re-asserted on every <Map> (maximize/minimize can
+        re-add the caption)."""
+        if os.name != "nt" or not getattr(self, "_frameless", False):
+            return
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+            GWL_STYLE = -16
+            WS_CAPTION = 0x00C00000
+            WS_THICKFRAME = 0x00040000
+            style = ctypes.windll.user32.GetWindowLongPtrW(hwnd, GWL_STYLE)
+            if style & WS_CAPTION:
+                style = (style & ~WS_CAPTION) | WS_THICKFRAME
+                ctypes.windll.user32.SetWindowLongPtrW(hwnd, GWL_STYLE, style)
+                SWP_FRAMECHANGED = 0x0020
+                SWP_NOMOVE = 0x0002
+                SWP_NOSIZE = 0x0001
+                SWP_NOZORDER = 0x0004
+                ctypes.windll.user32.SetWindowPos(
+                    hwnd, 0, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED)
+        except Exception:
+            pass
+
     # ── custom title bar handlers ──────────────────────────────
     def _title_drag_start(self, e):
         self._drag_dx = e.x
@@ -281,15 +312,28 @@ class SightwareApp(tk.Tk):
     def _title_min(self):
         self.iconify()
 
+    def _work_area(self):
+        import ctypes
+        class RECT(ctypes.Structure):
+            _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long),
+                        ("r", ctypes.c_long), ("b", ctypes.c_long)]
+        rc = RECT()
+        ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rc), 0)
+        return rc.l, rc.t, rc.r - rc.l, rc.b - rc.t
+
     def _title_max(self):
-        try:
-            cur = self.state()
-            if cur == "zoomed":
-                self.state("normal")
-            else:
-                self.state("zoomed")
-        except Exception:
-            pass
+        # borderless maximize: size to the work area so the taskbar stays
+        if getattr(self, "_max_saved", None):
+            g = self._max_saved
+            self._max_saved = None
+            self.geometry(g)
+            self._apply_frameless_style()
+            return
+        l, t, w, h = self._work_area()
+        self._max_saved = self.geometry()
+        self.state("normal")
+        self.geometry(f"{w}x{h}+{l}+{t}")
+        self._apply_frameless_style()
 
     def _title_close(self):
         self._on_close()
