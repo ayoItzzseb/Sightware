@@ -12,8 +12,11 @@ model and are ignored on import.
 """
 from __future__ import annotations
 
-COLORS = ["#FFFFFF", "#00FF66", "#FFFF00", "#FF9C41",
-          "#FF6EC7", "#35E2E2", "#FF4655", "#8B5CF6"]
+# In-game colour picker order (verified against community decoder):
+# 0 white, 1 green, 2 yellow green, 3 green yellow, 4 yellow, 5 cyan,
+# 6 pink, 7 red. Index 8 = custom colour carried in the u; key.
+COLORS = ["#FFFFFF", "#00FF00", "#7FFF00", "#DFFF00",
+          "#FFFF00", "#00FFFF", "#FF00FF", "#FF0000"]
 
 _BASE = {
     "crosshair": {
@@ -90,7 +93,11 @@ def decode_with_info(code: str):
     summary = []
 
     idx = int(num("c", 0))
-    if 0 <= idx < len(COLORS):
+    if idx == 8 and kv.get("u"):
+        uhex = str(kv["u"]).strip()
+        if len(uhex) >= 6:
+            c["tint"] = ("#" + uhex[:6].upper()) + "FF"
+    elif 0 <= idx < len(COLORS):
         c["tint"] = COLORS[idx] + "FF"
 
     # Valtix has one ring of lines; VALORANT has inner (0*) AND outer (1*).
@@ -124,10 +131,16 @@ def decode_with_info(code: str):
             summary.append("outer lines were present but hidden by opacity")
         summary.append("no visible cross lines in this code")
 
-    # outlines: o is outline opacity (0-1)
+    # outlines: h = enabled (0/1), t = thickness, o = opacity (0-1).
+    # h defaults to on when o > 0 (most codes omit h).
+    h_on = num("h", 1) >= 0.5
     o = max(num("o", 0), 0)
-    c["outline"]["thickness"] = 2 if o > 0 else 0
-    c["outline"]["tint"] = "#000000FF" if o > 0 else "#00000000"
+    if h_on and o > 0:
+        c["outline"]["thickness"] = max(num("t", 1), 1)
+        c["outline"]["tint"] = "#000000FF"
+    else:
+        c["outline"]["thickness"] = 0
+        c["outline"]["tint"] = "#00000000"
 
     # center dot: d is dot opacity (0-1), z is dot size
     d_op = num("d", 0)
@@ -149,29 +162,43 @@ def encode(cfg: dict) -> str | None:
     if c.get("style") not in ("cross", "circle"):
         return None
     r, g, b = _hex8_rgb(c.get("tint", "#FFFFFFFF"))
-    # nearest in-game colour index by RGB distance
-    best_i, best_d = 0, 1e9
+    # exact palette match first, else nearest; custom colours become c;8+u
+    best_i, best_d = 8, 1e9
     for i, col in enumerate(COLORS):
         cr, cg, cb = _hex8_rgb(col)
         d = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2
+        if d == 0:
+            best_i, best_d = i, 0
+            break
         if d < best_d:
             best_i, best_d = i, d
+    if best_d > 3 * 3:
+        best_i = 8
 
     a = _hex8_alpha(c.get("tint", "#FFFFFFFF")) / 255
     dot = c.get("dot", {}) or {}
-    o_alpha = _hex8_alpha((c.get("outline") or {}).get("tint", "#000000FF")) / 255 \
-        if (c.get("outline") or {}).get("thickness", 0) else 0
+    outline = c.get("outline") or {}
+    o_thickness = float(outline.get("thickness", 0) or 0)
+    o_alpha = _hex8_alpha(outline.get("tint", "#000000FF")) / 255 \
+        if o_thickness > 0 else 0
 
-    parts = ["0", "P",
-             "c", str(best_i),
-             "o", f"{o_alpha:g}",
-             "d", "1" if float(dot.get("size", 0) or 0) >= 1 else "0",
-             "z", f"{float(dot.get('size', 0) or 0):g}",
-             "f", "0",
-             "0t", f"{float(c.get('thickness', 2) or 2):g}",
-             "0l", f"{float(c.get('length', 4) or 0):g}",
-             "0o", f"{float(c.get('gap', 2) or 0):g}",
-             "0a", f"{a:g}",
-             "0f", "0",
-             "1b", "0"]
+    parts = ["0", "P"]
+    if best_i == 8:
+        r8, g8, b8 = _hex8_rgb(c.get("tint", "#FFFFFFFF"))
+        parts += ["c", "8", "u", f"{r8:02X}{g8:02X}{b8:02X}FF"]
+    else:
+        parts += ["c", str(best_i)]
+    if o_thickness > 0:
+        parts += ["h", "1", "t", f"{o_thickness:g}", "o", f"{o_alpha:g}"]
+    else:
+        parts += ["h", "0", "o", "0"]
+    parts += ["d", "1" if float(dot.get("size", 0) or 0) >= 1 else "0",
+              "z", f"{float(dot.get('size', 0) or 0):g}",
+              "f", "0",
+              "0t", f"{float(c.get('thickness', 2) or 2):g}",
+              "0l", f"{float(c.get('length', 4) or 0):g}",
+              "0o", f"{float(c.get('gap', 2) or 0):g}",
+              "0a", f"{a:g}",
+              "0f", "0",
+              "1b", "0"]
     return ";".join(parts)

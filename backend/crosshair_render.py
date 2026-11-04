@@ -297,7 +297,9 @@ def make_vector_photo(cfg: dict):
             d.rectangle([r[0] * SS, r[1] * SS, r[2] * SS, r[3] * SS], fill=color)
 
         if o_t > 0:
-            e = max(int(round(o_t / 2)), 1)
+            # game semantics: the outline band is the FULL outline thickness
+            # on each side of the fill (per the CrosshairSVG reference)
+            e = max(int(round(o_t)), 1)
             for (X1, Y1, X2, Y2) in fills:
                 draw((X1 - e, Y1 - e, X2 + e, Y2 + e), o_c)
         for r in fills:

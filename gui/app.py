@@ -161,6 +161,32 @@ class ValtixApp(tk.Tk):
         except Exception:
             pass
 
+    # ── live theme switching ───────────────────────────────────
+    def apply_theme_variant(self, name: str) -> None:
+        import sys as _sys
+        import gui.theme as theme
+        theme.set_variant(name)
+        accents = ("RED", "RED_DARK", "RED_SOFT", "ORANGE", "GRAD_RULE")
+        for mod_name, mod in list(_sys.modules.items()):
+            if mod_name.startswith("gui") and hasattr(mod, "RED"):
+                for n in accents:
+                    if hasattr(theme, n):
+                        setattr(mod, n, getattr(theme, n))
+        theme.apply(self)
+        # rebuild chrome + tabs so every canvas/label picks up the new accent
+        active = self._active or "live"
+        for frame in list(self._tabs.values()):
+            try:
+                frame.destroy()
+            except Exception:
+                pass
+        self._tabs.clear()
+        self._tab_cache.clear()
+        for w in self.shell.winfo_children():
+            w.destroy()
+        self._build_body()
+        self.show_tab(active)
+
     # ── command palette (Ctrl+K) ───────────────────────────────
     def _command_palette(self) -> None:
         actions = [("Live Board", lambda: self.show_tab("live")),
@@ -270,7 +296,8 @@ class ValtixApp(tk.Tk):
 
     # ── window shell: sidebar + main column ────────────────────
     def _build_body(self) -> None:
-        shell = tk.Frame(self, bg=BG)
+        self.shell = tk.Frame(self, bg=BG)
+        shell = self.shell
         shell.pack(fill="both", expand=True)
 
         # ── custom title bar ────────────────────────────────────

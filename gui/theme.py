@@ -28,7 +28,9 @@ TEXT      = "#F5F7FA"   # primary text
 # Tokens are imported by name everywhere, so variants rebind the accent
 # globals at import time based on the saved setting.
 _VARIANTS = {
-    "signal": {},   # orange primary / violet secondary (default)
+    "signal": {"RED": "#FF7A1A", "RED_DARK": "#B85A10", "RED_SOFT": "#FFA552",
+               "ORANGE": "#FF7A1A",
+               "GRAD_RULE": ["#FF7A1A", "#8B5CF6", "#35C98A"]},
     "classic": {"RED": "#FF4655", "RED_DARK": "#B8323E", "RED_SOFT": "#FF8A94",
                 "ORANGE": "#FF9C41", "GRAD_RULE": ["#141F2A", "#FF4655", "#141F2A"]},
     "violet": {"RED": "#8B5CF6", "RED_DARK": "#5B3FA8", "RED_SOFT": "#C4B1FA",
@@ -50,8 +52,14 @@ def _active_variant() -> str:
 
 
 def _apply_variant_overrides():
-    overrides = _VARIANTS.get(_active_variant())
-    for key, val in overrides.items():
+    set_variant(_active_variant())
+
+
+def set_variant(name: str) -> None:
+    """Rebind the accent tokens live (no restart needed)."""
+    if name not in _VARIANTS:
+        name = "signal"
+    for key, val in _VARIANTS[name].items():
         globals()[key] = val
 
 

@@ -126,8 +126,11 @@ class SettingsDialog(_Dialog):
         self._vars["uiTheme"] = theme_cb_var = tk.StringVar(
             value=theme_cb.get())
         theme_cb.configure(textvariable=theme_cb_var)
-        tk.Label(theme_row, text="restart Valtix to apply", bg=CARD,
+        tk.Label(theme_row, text="applies instantly", bg=CARD,
                  fg=TEXT_FAINT, font=("Segoe UI", 8)).pack(side="left", padx=8)
+        theme_cb_var.trace_add(
+            "write", lambda *_a: self.app.apply_theme_variant(
+                theme_cb_var.get()))
 
         # per-map preferences
         self._section(body, "per-map agent preferences")
