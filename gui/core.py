@@ -127,7 +127,7 @@ class AppCore:
         out["agentMeta"] = {
             "name": meta.get("name", m.get("agent")),
             "role": meta.get("role", "Flex"),
-            "color": meta.get("color", "#FF4655"),
+            "color": meta.get("color", "#FF7A1A"),
             "portrait": meta.get("portrait"),
         }
         out["stats"] = {**st, "kda": kda}

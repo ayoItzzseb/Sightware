@@ -484,7 +484,7 @@ class MatchHero(tk.Canvas):
         if panel_w == 0:
             self.create_text(w - 28, h // 2,
                              text=(board.get("map") or "VALTIX").upper(),
-                             fill=mix("#101A24", "#ECE8E1", 0.06),
+                             fill=mix("#151B27", "#F5F7FA", 0.06),
                              font=("Segoe UI", 36, "bold"), anchor="e")
 
         text_right = w - panel_w - 24
@@ -498,7 +498,7 @@ class MatchHero(tk.Canvas):
             cw = 14 + len(mode) * 7
             self.create_rectangle(cx_cursor, chip_y, cx_cursor + cw,
                                   chip_y + 21,
-                                  fill=mix("#101A24", "#ECE8E1", 0.03),
+                                  fill=mix("#151B27", "#F5F7FA", 0.03),
                                   outline="#2A3844")
             self.create_text(cx_cursor + cw / 2, chip_y + 10,
                              text=mode.upper(), fill=TEXT_DIM,

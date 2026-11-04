@@ -1,7 +1,13 @@
-"""Valtix GUI — dark theme & design tokens.
+"""Valtix GUI — design system (Redesign Prototype).
 
-A hand-crafted VALORANT-inspired palette (deep slate blue + signature red)
-applied to ttk widgets plus helpers used across the app.
+"Signal" theme: deep charcoal-navy surfaces, warm orange identity accent,
+violet secondary accent. Applied to ttk widgets plus shared helpers.
+
+NOTE ON NAMES: tokens keep their historical names (RED, TEAL, ...) so every
+tab inherits the palette without code churn. In this redesign:
+RED      → the ORANGE primary identity accent (#FF7A1A)
+TEAL     → the positive/success status colour (#35C98A)
+PURPLE   → new secondary accent (#8B5CF6)
 """
 from __future__ import annotations
 
@@ -9,29 +15,32 @@ import tkinter.font as tkfont
 from tkinter import ttk
 
 # ── palette ────────────────────────────────────────────────────
-BG        = "#0F1923"   # window background (VALORANT dark navy)
-BG_RAISED = "#14212D"   # sidebar / header
-CARD      = "#16222E"   # card background
-CARD_HI   = "#1B2B39"   # card hover
-LINE      = "#26343F"   # hairline borders
-LINE_SOFT = "#1D2A35"
+BG        = "#0B0D12"   # window background
+BG_RAISED = "#10141D"   # sidebar / header
+CARD      = "#151B27"   # card background
+CARD_HI   = "#1B2331"   # elevated surface / hover
+LINE      = "#252D3A"   # hairline borders
+LINE_SOFT = "#1B2230"
 
-TEXT      = "#ECE8E1"   # primary text
-TEXT_DIM  = "#8B978F"   # secondary text
-TEXT_FAINT= "#5F6E6A"   # tertiary text
+TEXT      = "#F5F7FA"   # primary text
+TEXT_DIM  = "#929CAC"   # secondary text
+TEXT_FAINT= "#5A6475"   # tertiary text
 
-RED       = "#FF4655"   # Valtix accent
-RED_DARK  = "#B8323E"
-RED_SOFT  = "#FF8A94"
-TEAL      = "#18E2B2"   # success / live
-TEAL_DIM  = "#0E8A6C"
-AMBER     = "#F5C542"   # warnings
-ORANGE    = "#FF9C41"
-BLUE      = "#57B4E8"
+RED       = "#FF7A1A"   # PRIMARY identity accent (orange signal)
+RED_DARK  = "#B85A10"
+RED_SOFT  = "#FFA552"
+PURPLE    = "#8B5CF6"   # secondary accent
+PURPLE_DIM= "#4A3A78"
+PURPLE_SOFT = "#C4B1FA"
+TEAL      = "#35C98A"   # positive status
+TEAL_DIM  = "#17754F"
+AMBER     = "#F5B942"   # warning status
+ORANGE    = "#FF7A1A"
+BLUE      = "#5AA7E8"
 
-WIN      = "#3BA55D"
-LOSS     = "#E34343"
-DRAW     = "#8B978F"
+WIN      = "#35C98A"
+LOSS     = "#F05C67"
+DRAW     = "#929CAC"
 
 FAMILY_MAIN = "Segoe UI"
 FAMILY_MONO = "Consolas"
@@ -65,8 +74,7 @@ def alpha_hex(color: str, alpha: int) -> str:
 
 
 def readable(color: str, threshold: float = 0.42) -> str:
-    """Lighten a text color until it is legible on the dark background
-    (some agent palette colors, e.g. Omen's #47508F, are near-invisible)."""
+    """Lighten a text color until it is legible on the dark background."""
     try:
         r, g, b = rgb(color)
     except (ValueError, AttributeError, TypeError):
@@ -146,15 +154,22 @@ def apply(root) -> dict:
               background=[("pressed", shade(BG_RAISED, -0.2)),
                           ("active", shade(BG_RAISED, 0.12))],
               foreground=[("disabled", TEXT_FAINT)])
-    style.configure("Danger.TButton", background="#2A1B20", foreground=RED_SOFT,
+    style.configure("Danger.TButton", background=mix(LOSS, BG, 0.82),
+                    foreground=RED_SOFT,
                     borderwidth=0, focusthickness=0, padding=(10, 6))
     style.map("Danger.TButton",
-              background=[("active", "#3A2129"), ("pressed", "#241419")])
-    style.configure("Success.TButton", background=TEAL_DIM, foreground="#D9FFF3",
+              background=[("active", mix(LOSS, BG, 0.72)),
+                          ("pressed", mix(LOSS, BG, 0.88))])
+    style.configure("Success.TButton", background=TEAL_DIM, foreground="#E9FFF6",
                     borderwidth=0, focusthickness=0, padding=(12, 7))
     style.map("Success.TButton",
               background=[("active", shade(TEAL_DIM, 0.15)),
                           ("pressed", shade(TEAL_DIM, -0.2))])
+    style.configure("Purple.TButton", background=PURPLE_DIM, foreground=PURPLE_SOFT,
+                    borderwidth=0, focusthickness=0, padding=(12, 7))
+    style.map("Purple.TButton",
+              background=[("active", shade(PURPLE_DIM, 0.15)),
+                          ("pressed", shade(PURPLE_DIM, -0.2))])
 
     # combobox
     style.configure("TCombobox", fieldbackground=CARD_HI, background=CARD_HI,
@@ -196,6 +211,8 @@ def apply(root) -> dict:
                     troughcolor=BG_RAISED, borderwidth=0, thickness=6)
     style.configure("Teal.Horizontal.TProgressbar", background=TEAL,
                     troughcolor=BG_RAISED, borderwidth=0, thickness=6)
+    style.configure("Purple.Horizontal.TProgressbar", background=PURPLE,
+                    troughcolor=BG_RAISED, borderwidth=0, thickness=6)
 
     # notebook (used by dialogs / detail windows)
     style.configure("TNotebook", background=BG, borderwidth=0, tabmargins=(0, 0, 0, 0))
@@ -207,15 +224,15 @@ def apply(root) -> dict:
     return fonts
 
 
-# ── gradients (used by GradientFrame and canvas composits) ─────
-GRAD_SIDEBAR = ["#16232F", "#101B24"]          # vertical, subtle
-GRAD_HEADER  = ["#1A2531", "#141F2A"]          # horizontal
-GRAD_RULE    = ["#FF4655", "#C6447A", "#18E2B2"]  # brand accent rule
-GRAD_HERO    = ["#3A1620", "#16222E", "#101A23"]  # diagonal-ish hero fallback
-GRAD_CARD    = ["#1A2936", "#151F2A"]
-GRAD_WIN     = ["#1E5A3C", "#3BA55D"]
-GRAD_LOSS    = ["#5A1E28", "#E34343"]
-GRAD_STATUS  = ["#121C26", "#0D151D"]
+# ── gradients (used by GradientFrame and canvas composites) ─────
+GRAD_SIDEBAR = ["#10141D", "#0B0D12"]              # vertical, subtle
+GRAD_HEADER  = ["#12161F", "#0D1017"]              # horizontal
+GRAD_RULE    = ["#FF7A1A", "#8B5CF6", "#35C98A"]   # brand accent rule
+GRAD_HERO    = ["#2B1A10", "#151B27", "#0B0D12"]   # diagonal-ish hero fallback
+GRAD_CARD    = ["#1A2230", "#141A25"]
+GRAD_WIN     = ["#1E5A3C", "#35C98A"]
+GRAD_LOSS    = ["#5A1E28", "#F05C67"]
+GRAD_STATUS  = ["#10141D", "#0B0D12"]
 
 
 def multi_stop(stops: "list[str]", t: float) -> str:

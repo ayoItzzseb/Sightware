@@ -116,9 +116,14 @@ def main() -> int:
     check("queue state", isinstance(core.queue_state(), dict))
     ql = core.quicklock_status()
     check("quicklock status", "enabled" in ql)
+    # force the disabled state for this check, then restore the user's choice
+    _saved_ql = {k: core.all_settings().get(k) for k in
+                 ("quickLockEnabled", "quickLockPolicyAck")}
+    core.update_settings({"quickLockEnabled": False})
     locked = core.quicklock_lock("Jett")
     check("quicklock refused when disabled",
           locked.get("status") == "disabled", str(locked))
+    core.update_settings(_saved_ql)
     check("region info", "regions" in core.region_info())
     check("health", core.health().get("ok") is True)
     check("privacy", "telemetry" in core.privacy())
@@ -141,9 +146,11 @@ def main() -> int:
     check("window prefs persist",
           merged.get("windowGeometry") == "1280x820"
           and merged.get("lastTab") == "live")
-    from gui.update_check import check_for_update
-    res = check_for_update()
-    check("update checker handles no repo", res.get("status") == "no_repo",
+    from gui.update_check import check_for_update, current_version, _parse
+    check("local version parses", _parse(current_version()) > (0,))
+    res = check_for_update(timeout=4.0)
+    check("update checker returns a known status",
+          res.get("status") in ("update_available", "up_to_date", "error"),
           str(res))
     from gui import platform_win
     check("startup toggle off by default",

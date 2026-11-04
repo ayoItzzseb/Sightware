@@ -168,7 +168,8 @@ def make_vector_photo(cfg: dict):
 
     gap = float(c.get("gap", 0) or 0)
     length = float(c.get("length", 0) or 0)
-    thickness = max(float(c.get("thickness", 1) or 1), 1)
+    # sub-pixel thickness is supported: SSx supersampling + AA render it
+    thickness = max(float(c.get("thickness", 1) or 0), 0.1)
     tint = _rgba(c.get("tint", "#FFFFFFFF"))
     lines = c.get("lines", [True, True, True, True])
     up, down, left, right = (bool(x) for x in (list(lines) + [True] * 4)[:4])
@@ -200,8 +201,14 @@ def make_vector_photo(cfg: dict):
     d = ImageDraw.Draw(img)
 
     def rect(x1, y1, x2, y2, color):
-        d.rectangle([(cx + x1) * SS, (cy + y1) * SS, (cx + x2) * SS, (cy + y2) * SS],
-                    fill=color)
+        # Snap edges to the final-pixel grid (round one edge, derive the size)
+        # so small crosshairs render crisp instead of smeared across
+        # fractional pixels. Circles keep their supersampled AA.
+        X1 = round(cx + x1)
+        Y1 = round(cy + y1)
+        X2 = X1 + max(round(x2 - x1), 1)
+        Y2 = Y1 + max(round(y2 - y1), 1)
+        d.rectangle([X1 * SS, Y1 * SS, X2 * SS, Y2 * SS], fill=color)
 
     def ring(R, W, color):
         # Pillow strokes ellipses INWARD from the bbox; expand the bbox by
@@ -236,25 +243,48 @@ def make_vector_photo(cfg: dict):
         ring(radius, thickness, tint)
         dot_pass()
     else:
-        if o_t > 0:
-            ot = thickness + o_t
-            if up:
-                rect(-ot / 2, -gap - length - o_t / 2, ot / 2, -gap + o_t / 2, o_c)
-            if down:
-                rect(-ot / 2, gap - o_t / 2, ot / 2, gap + length + o_t / 2, o_c)
-            if left:
-                rect(-gap - length - o_t / 2, -ot / 2, -gap + o_t / 2, ot / 2, o_c)
-            if right:
-                rect(gap - o_t / 2, -ot / 2, gap + length + o_t / 2, ot / 2, o_c)
         t = thickness
+
+        # Snap the FILL rects to the pixel grid first, then derive outlines
+        # as expansions of the snapped fills — guarantees symmetric, crisp
+        # borders even at 1–2 px sizes.
+        def snap_v(y_start, y_end):
+            X1 = round(cx - t / 2)
+            X2 = X1 + max(round(t), 1)
+            Y1 = round(cy + y_start)
+            Y2 = round(cy + y_end)
+            if Y2 <= Y1:
+                Y2 = Y1 + 1
+            return X1, Y1, X2, Y2
+
+        def snap_h(x_start, x_end):
+            Y1 = round(cy - t / 2)
+            Y2 = Y1 + max(round(t), 1)
+            X1 = round(cx + x_start)
+            X2 = round(cx + x_end)
+            if X2 <= X1:
+                X2 = X1 + 1
+            return X1, Y1, X2, Y2
+
+        fills = []
         if up:
-            rect(-t / 2, -gap - length, t / 2, -gap, tint)
+            fills.append(snap_v(-gap - length, -gap))
         if down:
-            rect(-t / 2, gap, t / 2, gap + length, tint)
+            fills.append(snap_v(gap, gap + length))
         if left:
-            rect(-gap - length, -t / 2, -gap, t / 2, tint)
+            fills.append(snap_h(-gap - length, -gap))
         if right:
-            rect(gap, -t / 2, gap + length, t / 2, tint)
+            fills.append(snap_h(gap, gap + length))
+
+        def draw(r, color):
+            d.rectangle([r[0] * SS, r[1] * SS, r[2] * SS, r[3] * SS], fill=color)
+
+        if o_t > 0:
+            e = max(int(round(o_t / 2)), 1)
+            for (X1, Y1, X2, Y2) in fills:
+                draw((X1 - e, Y1 - e, X2 + e, Y2 + e), o_c)
+        for r in fills:
+            draw(r, tint)
         dot_pass()
 
     img = img.resize((size, size), Image.BOX)  # area average: AA without Lanczos ringing

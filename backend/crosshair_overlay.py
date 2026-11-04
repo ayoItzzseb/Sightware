@@ -315,7 +315,8 @@ class OverlayEngine:
         style = c.get("style")
         if style in ("cross", "circle"):
             for key in ("gap", "length", "thickness"):
-                c[key] = max(round(float(c.get(key, 0) or 0) * scale, 2), 1 if key != "gap" else 0)
+                v = round(float(c.get(key, 0) or 0) * scale, 3)
+                c[key] = max(v, 0.1) if key in ("thickness", "length") else max(v, 0)
             c.setdefault("outline", {})
             c["outline"]["thickness"] = round(float(c["outline"].get("thickness", 0) or 0) * scale, 2)
             d = c.get("dot", {}) or {}

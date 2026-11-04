@@ -22,25 +22,59 @@ LINE_ARROWS = ["↑", "↓", "←", "→"]
 SLOTS = 4
 
 
-def _slider(parent, label, frm, to, get, set_cb, fmt="{:.0f}", bg=CARD, res=None):
+def _slider(parent, label, frm, to, get, set_cb, fmt="{:.4f}", bg=CARD, res=None):
+    """Slider + numeric entry. Values are continuous down to 0.0001 — typed
+    decimals are stored exactly (the slider range auto-expands to cover
+    them); dragging moves the same continuous value."""
     row = tk.Frame(parent, bg=bg)
     row.pack(fill="x", pady=3)
     tk.Label(row, text=label, bg=bg, fg=TEXT_DIM,
              font=("Segoe UI", 9), width=12, anchor="w").pack(side="left")
-    val = tk.Label(row, text=fmt.format(get()), bg=bg, fg=TEXT,
-                   font=("Segoe UI", 9, "bold"), width=6)
-    if res is None:
-        res = 0.25 if to <= 8 else 1
-    s = ValtixSlider(row, from_=frm, to=to, value=get(), resolution=res,
-                     length=170, bg=bg)
+    # effectively continuous: typed values are never stepped away
+    s = ValtixSlider(row, from_=frm, to=to, value=get(), resolution=0.0001,
+                     length=150, bg=bg)
+    entry_var = tk.StringVar(value=_fmt_val(get(), fmt))
+    entry = tk.Entry(row, textvariable=entry_var, width=9, bd=0,
+                     bg=BG_RAISED, fg=TEXT, insertbackground=RED,
+                     highlightthickness=1, highlightbackground=LINE,
+                     highlightcolor=RED, justify="center",
+                     font=("Consolas", 8))
+    suffix = "x" if fmt.endswith("x") else ""
 
-    def _change(v):
+    def _show(v):
+        entry_var.set(f"{v:.4f}".rstrip("0").rstrip(".") + suffix)
+
+    def commit(_e=None):
+        try:
+            v = round(float(entry_var.get().replace(",", ".")), 4)
+        except ValueError:
+            _show(s.get())
+            return
+        lo, hi = s.cget("from_"), s.cget("to")
+        if v < lo:
+            s.configure(from_=v)
+        elif v > hi:
+            s.configure(to=v)
+        s.set(v)
         set_cb(s.get())
-        val.configure(text=fmt.format(s.get()))
-    s.configure(command=_change)
-    s.pack(side="left", padx=(0, 8), pady=2)
-    val.pack(side="left")
+        _show(s.get())
+
+    def on_slider(_v):
+        set_cb(s.get())
+        _show(s.get())
+
+    s.configure(command=on_slider)
+    entry.bind("<Return>", commit)
+    entry.bind("<FocusOut>", commit)
+    s._commit = commit          # exposed for tests
+    s._entry_var = entry_var
+    s.pack(side="left", padx=(0, 5), pady=2)
+    entry.pack(side="left")
     return s
+
+
+def _fmt_val(v, fmt):
+    return f"{v:.4f}".rstrip("0").rstrip(".") + ("x" if fmt.endswith("x") else "")
 
 
 def _alpha_slider(parent, get_hex, set_hex, bg=CARD):
@@ -102,10 +136,8 @@ class CrosshairTab(tk.Frame):
                                     fg=TEXT_FAINT, font=("Segoe UI", 8, "bold"),
                                     padx=10, pady=3)
         self.status_pill.pack(side="left")
-        ttk.Button(top, text="Import Simple Sight library", style="Ghost.TButton",
-                   command=self._import_library).pack(side="right")
         ttk.Button(top, text="Open data folder", style="Ghost.TButton",
-                   command=self._open_data_folder).pack(side="right", padx=(0, 6))
+                   command=self._open_data_folder).pack(side="right")
         self.enabled_switch = Switch(top, on=self.engine.settings.get("enabled", True),
                                      command=self._toggle_enabled)
         self.enabled_switch.pack(side="right", padx=(0, 10))
@@ -251,7 +283,7 @@ class CrosshairTab(tk.Frame):
         self._sliders["pixels_scale"] = _slider(f, "Scale", 0.25, 6,
                                                 lambda: self._get_px("scale", 1),
                                                 lambda v: self._set_px("scale", v),
-                                                fmt="{:.2f}x", bg=CARD, res=0.25)
+                                                fmt="{:.4f}x", bg=CARD)
         px_row = tk.Frame(f, bg=CARD)
         px_row.pack(fill="x", pady=3)
         self._sw_pixels = _color_button(px_row, lambda: self._get_px("tint", "#FFFFFFFF"),
@@ -265,7 +297,7 @@ class CrosshairTab(tk.Frame):
         self._sliders["custom_scale"] = _slider(f, "Scale", 0.25, 6,
                                                 lambda: self._get_custom("scale", 1),
                                                 lambda v: self._set_custom("scale", v),
-                                                fmt="{:.2f}x", bg=CARD, res=0.25)
+                                                fmt="{:.4f}x", bg=CARD)
         filt_row = tk.Frame(f, bg=CARD)
         filt_row.pack(fill="x", pady=3)
         self._filter_btns: dict[str, tk.Label] = {}
@@ -335,6 +367,10 @@ class CrosshairTab(tk.Frame):
             return
         if cfg["crosshair"]["style"] == "custom" and cfg["custom"]["path"] == "-":
             cv.create_text(w / 2, h / 2, text="Import a PNG below",
+                           fill=TEXT_FAINT, font=("Segoe UI", 9))
+            return
+        if cfg["crosshair"]["style"] == "cross"                 and not any(cfg["crosshair"].get("lines", [])):
+            cv.create_text(w / 2, h / 2, text="All lines are off — tap the arrows",
                            fill=TEXT_FAINT, font=("Segoe UI", 9))
             return
         self._draw_scaled(cv, w / 2, h / 2, cfg)
@@ -455,7 +491,7 @@ class CrosshairTab(tk.Frame):
         self._sliders["overlay_scale"] = _slider(f, "Overlay scale", 0.25, 4,
                                                  lambda: s.get("scale", 1),
                                                  lambda v: self._set_setting("scale", v),
-                                                 fmt="{:.2f}x", bg=CARD, res=0.25)
+                                                 fmt="{:.4f}x", bg=CARD)
 
         bind_row = tk.Frame(f, bg=CARD)
         bind_row.pack(fill="x", pady=(8, 2))
@@ -649,6 +685,11 @@ class CrosshairTab(tk.Frame):
     # ── style / shape handlers ─────────────────────────────────
     def _set_style(self, key):
         self._working()["crosshair"]["style"] = key
+        # switching to Cross is an explicit intent to draw lines: if every
+        # line toggle happens to be off (e.g. after loading a dot-only
+        # preset), bring them back so the cross is never invisibly empty
+        if key == "cross" and not any(self._working()["crosshair"].get("lines", [])):
+            self._working()["crosshair"]["lines"] = [True, True, True, True]
         self._sync_style_ui()
         self._draw_preview()
 

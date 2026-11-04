@@ -157,7 +157,7 @@ class Switch(tk.Canvas):
         track = mix("#2C3B47", TEAL_DIM, t)
         self.create_oval(1, 2, w - 1, h - 2, fill=track, outline=track)
         x = 3 + t * (w - knob - 6)
-        self.create_oval(x, 3, x + knob, h - 3, fill="#ECE8E1", outline="")
+        self.create_oval(x, 3, x + knob, h - 3, fill="#F5F7FA", outline="")
 
 
 # ── win-probability / progress bars ────────────────────────────

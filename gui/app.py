@@ -11,9 +11,10 @@ import traceback
 import tkinter as tk
 from tkinter import ttk
 
-from .theme import (AMBER, BG, BG_RAISED, CARD, GRAD_HEADER, GRAD_RULE,
-                   GRAD_SIDEBAR, GRAD_STATUS, LINE, RED, RED_SOFT, TEAL,
-                   TEXT, TEXT_DIM, TEXT_FAINT, apply, mix, multi_stop)
+from .theme import (AMBER, BG, BG_RAISED, CARD, CARD_HI, GRAD_HEADER,
+                   GRAD_RULE, GRAD_SIDEBAR, GRAD_STATUS, LINE, LINE_SOFT,
+                   PURPLE, RED, RED_SOFT, TEAL, TEXT, TEXT_DIM, TEXT_FAINT,
+                   apply, mix, multi_stop, shade)
 from .widgets import AccentRule, GradientFrame, Pill, Toast
 
 from .core import AppCore
@@ -29,24 +30,32 @@ from .tabs.crosshair_tab import CrosshairTab
 from .dialogs import (SettingsDialog, PrivacyDialog, PlayerProfileDialog,
                      MatchDetailDialog)
 
-POLL_PREGAME = 2.5   # agent select: keep the pick banner snappy
+POLL_PREGAME = 1.2   # agent select: locks must appear fast
 POLL_INGAME = 4.0    # same cadence the web dashboard used while playing
 POLL_MENUS = 8.0
 POLL_IDLE = 12.0     # client closed / demo: relax (adaptive = fewer wasted polls)
 
-NAV = [("live", "LIVE BOARD", "◉"),
-       ("performance", "PERFORMANCE", "▤"),
-       ("encounters", "ENCOUNTERS", "⌖"),
-       ("sessions", "SESSIONS", "◷"),
-       ("inventory", "COLLECTION", "❖"),
-       ("crosshair", "CROSSHAIR", "✛"),
-       ("display", "DISPLAY", "❂")]
+NAV = [("live", "Live Board", "◉"),
+       ("performance", "Performance", "▤"),
+       ("encounters", "Encounters", "⌖"),
+       ("sessions", "Sessions", "◷"),
+       ("inventory", "Collection", "❖"),
+       ("crosshair", "Crosshair", "✛"),
+       ("display", "Display", "❂")]
+
+NAV_SECTIONS = [
+    ("MAIN", ["live", "performance", "encounters", "sessions"]),
+    ("TOOLS", ["inventory", "crosshair", "display"]),
+]
+NAV_ICONS = {k: i for k, _l, i in NAV}
+NAV_LABELS = {k: l for k, l, _i in NAV}
+SIDEBAR_W = 208
 
 
 class ValtixApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Valtix — Local Edition")
+        self.title("Valtix — Redesign Prototype")
         self.configure(background=BG)
         self.geometry("1280x820")
         self.minsize(1080, 660)
@@ -89,12 +98,12 @@ class ValtixApp(tk.Tk):
         from crosshair_overlay import OverlayEngine
         self.crosshair_engine = OverlayEngine(self, self._post_ui)
 
-        self._build_header()
         self._build_body()
         self._build_statusbar()
 
         self.core.start_services()
         self.after(500, self._start_crosshair_engine)
+        self.after(2500, self._startup_update_check)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind("<F5>", lambda e: self.force_refresh())
         self.start_poll()
@@ -143,76 +152,159 @@ class ValtixApp(tk.Tk):
         except Exception:
             pass
 
-    # ── header ─────────────────────────────────────────────────
-    def _build_header(self) -> None:
-        header = tk.Frame(self, bg=BG_RAISED, height=54)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-
-        brand_wrap = tk.Frame(header, bg=BG_RAISED)
-        brand_wrap.pack(side="left", padx=(18, 6))
-        tk.Label(brand_wrap, text="V", bg=BG_RAISED, fg=RED,
-                 font=("Segoe UI", 17, "bold")).pack(side="left")
-        tk.Label(brand_wrap, text="VALTIX", bg=BG_RAISED, fg=TEXT,
-                 font=("Segoe UI", 14, "bold")).pack(side="left", padx=(2, 0))
-        edition = tk.Frame(header, bg=BG_RAISED,
-                           highlightbackground=LINE, highlightthickness=1)
-        edition.pack(side="left", padx=(8, 0), pady=(4, 0))
-        tk.Label(edition, text="LOCAL EDITION", bg=BG_RAISED, fg=TEXT_DIM,
-                 font=("Segoe UI", 7, "bold"), padx=8,
-                 pady=3).pack()
-
-        self.source_pill = Pill(header, "—", bg="#2A3742", fg=TEXT_DIM,
-                                font=("Segoe UI", 8, "bold"))
-        self.source_pill.pack(side="left", padx=(14, 6))
-        self.state_pill = Pill(header, "—", bg=CARD, fg=TEXT,
-                               font=("Segoe UI", 8, "bold"))
-        self.state_pill.pack(side="left", padx=2)
-        self.no_telemetry = Pill(header, "no telemetry · data stays on this PC",
-                                 bg=BG_RAISED, fg=TEXT_FAINT, font=("Segoe UI", 8))
-        self.no_telemetry.pack(side="left", padx=10)
-
-        btns = tk.Frame(header, bg=BG_RAISED)
-        btns.pack(side="right")
-        ttk.Button(btns, text="⟳ Refresh", style="Ghost.TButton",
-                   command=self.force_refresh).pack(side="left", padx=4)
-        ttk.Button(btns, text="⚙  Settings", style="Ghost.TButton",
-                   command=self.open_settings).pack(side="left", padx=4)
-        AccentRule(self, colors=["#141F2A", RED, "#141F2A"],
-                   height=2).pack(fill="x")
-
-    # ── body: sidebar + tab stack ──────────────────────────────
+    # ── window shell: sidebar + main column ────────────────────
     def _build_body(self) -> None:
-        body = tk.Frame(self, bg=BG)
-        body.pack(fill="both", expand=True)
+        shell = tk.Frame(self, bg=BG)
+        shell.pack(fill="both", expand=True)
 
-        self._active: str | None = None
-        self.nav = tk.Frame(body, bg=BG)
-        self.nav.pack(fill="x")
-        strip = tk.Frame(self.nav, bg=BG)
-        strip.pack(pady=(6, 0))
-        self._nav_items: dict[str, tk.Label] = {}
-        for key, label, _icon in NAV:
-            lbl = tk.Label(strip, text=label, bg=BG, fg=TEXT_DIM,
-                           font=("Segoe UI", 9, "bold"), padx=14, pady=4,
-                           cursor="hand2")
-            lbl.pack(side="left", padx=4)
-            lbl.bind("<Button-1>", lambda e, k=key: self.show_tab(k))
-            lbl.bind("<Enter>", lambda e, l=lbl: l.configure(fg=RED))
-            lbl.bind("<Leave>", lambda e, l=lbl, k=key: l.configure(
-                fg=TEXT if self._active == k else TEXT_DIM))
-            lbl._key = key
-            self._nav_items[key] = lbl
-        AccentRule(self.nav, colors=["#141F2A", RED, "#141F2A"],
-                   height=2).pack(fill="x")
+        # ── sidebar ─────────────────────────────────────────────
+        self.sidebar = tk.Frame(shell, bg=BG_RAISED, width=SIDEBAR_W)
+        self.sidebar.pack(side="left", fill="y")
+        self.sidebar.pack_propagate(False)
 
-        self.content = tk.Frame(body, bg=BG)
+        brand = tk.Frame(self.sidebar, bg=BG_RAISED)
+        brand.pack(fill="x", padx=18, pady=(20, 14))
+        # the real Valtix logo (assets/valtix-brand-256.png)
+        try:
+            from PIL import Image as _PILImage
+            from PIL import ImageTk as _PILImageTk
+            _img = _PILImage.open(self._resource("assets", "valtix-brand-256.png"))
+            self._brand_photo = _PILImageTk.PhotoImage(
+                _img.resize((34, 34), _PILImage.LANCZOS))
+            tk.Label(brand, image=self._brand_photo, bg=BG_RAISED
+                     ).pack(side="left")
+        except Exception:
+            # fallback if the asset/Pillow is unavailable
+            badge = tk.Canvas(brand, width=34, height=34, bg=BG_RAISED,
+                              highlightthickness=0)
+            badge.pack(side="left")
+            badge.create_text(17, 17, text="V", fill=RED,
+                              font=("Segoe UI", 15, "bold"))
+        brand_txt = tk.Frame(brand, bg=BG_RAISED)
+        brand_txt.pack(side="left", padx=(10, 0))
+        tk.Label(brand_txt, text="VALTIX", bg=BG_RAISED, fg=TEXT,
+                 font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        tk.Label(brand_txt, text="LOCAL EDITION", bg=BG_RAISED, fg=TEXT_FAINT,
+                 font=("Segoe UI", 7, "bold")).pack(anchor="w")
+
+        self._nav_items = {}
+        self._active = None
+
+        for title, keys in NAV_SECTIONS:
+            tk.Label(self.sidebar, text=title, bg=BG_RAISED, fg=TEXT_FAINT,
+                     font=("Segoe UI", 7, "bold"), anchor="w"
+                     ).pack(fill="x", padx=22, pady=(14, 4))
+            for key in keys:
+                self._make_nav_item(key)
+
+        foot = tk.Frame(self.sidebar, bg=BG_RAISED)
+        foot.pack(side="bottom", fill="x", padx=16, pady=12)
+        tk.Label(foot, text="100% local — no telemetry.\nData stays on this PC.",
+                 bg=BG_RAISED, fg=TEXT_FAINT, font=("Segoe UI", 8),
+                 justify="left", anchor="w").pack(fill="x")
+
+        # ── main column: header + content ───────────────────────
+        self._main = tk.Frame(shell, bg=BG)
+        self._main.pack(side="left", fill="both", expand=True)
+        self._build_header()
+
+        self.content = tk.Frame(self._main, bg=BG)
         self.content.pack(fill="both", expand=True)
-        self._tabs: dict[str, tk.Frame] = {}
+        self._tabs = {}
         # centered content column like the web dashboard
         self.column = tk.Frame(self.content, bg=BG)
         self.column.place(relx=0.5, rely=0, anchor="n", width=1160,
                           relheight=1)
+
+        def _fit_column(e, col=self.column):
+            # never wider than the visible area (sidebar already subtracted)
+            col.place_configure(width=max(720, min(1160, e.width - 28)))
+        self.content.bind("<Configure>", _fit_column, add="+")
+
+    def _make_nav_item(self, key: str) -> None:
+        label = NAV_LABELS[key]
+        icon = NAV_ICONS[key]
+        row = tk.Frame(self.sidebar, bg=BG_RAISED, cursor="hand2")
+        row.pack(fill="x", padx=10, pady=1)
+        indicator = tk.Frame(row, bg=BG_RAISED, width=3)
+        indicator.pack(side="left", fill="y", padx=(0, 8), pady=5)
+        body = tk.Frame(row, bg=BG_RAISED)
+        body.pack(fill="x")
+        tk.Label(body, text=icon, bg=BG_RAISED, fg=TEXT_DIM,
+                 font=("Segoe UI", 11), width=2, anchor="center"
+                 ).pack(side="left", pady=7)
+        tk.Label(body, text=label, bg=BG_RAISED, fg=TEXT_DIM,
+                 font=("Segoe UI", 9, "bold"), anchor="w"
+                 ).pack(side="left", padx=(6, 0), pady=7)
+        row._indicator = indicator
+        row._labels = [w for w in (body, *body.winfo_children())]
+
+        def hover_on(_e, r=row):
+            if self._active != key:
+                self._nav_style(r, CARD_HI, TEXT)
+
+        def hover_off(_e, r=row):
+            if self._active != key:
+                self._nav_style(r, BG_RAISED, TEXT_DIM)
+
+        for w in (row, *row._labels):
+            w.bind("<Enter>", hover_on)
+            w.bind("<Leave>", hover_off)
+            w.bind("<Button-1>", lambda e, k=key: self.show_tab(k))
+        self._nav_items[key] = row
+
+    def _nav_style(self, row, bg, fg, indicator=None):
+        row.configure(bg=bg)
+        row._indicator.configure(bg=indicator or bg)
+        for w in row._labels:
+            try:
+                w.configure(bg=bg)
+                if isinstance(w, tk.Label) and w.cget("text") not in NAV_ICONS.values():
+                    w.configure(fg=fg)
+            except tk.TclError:
+                pass
+
+    def _refresh_nav_states(self):
+        for k, row in self._nav_items.items():
+            if k == self._active:
+                self._nav_style(row, CARD, TEXT, indicator=RED)
+                for w in row._labels:
+                    if isinstance(w, tk.Label) and w.cget("text") in NAV_ICONS.values():
+                        w.configure(fg=RED)
+            else:
+                self._nav_style(row, BG_RAISED, TEXT_DIM)
+                for w in row._labels:
+                    if isinstance(w, tk.Label) and w.cget("text") in NAV_ICONS.values():
+                        w.configure(fg=TEXT_DIM)
+
+    # ── header (top bar of the main column) ────────────────────
+    def _build_header(self) -> None:
+        header = tk.Frame(self._main, bg=BG, height=56)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+
+        self.page_title = tk.Label(header, text="Live Board", bg=BG, fg=TEXT,
+                                   font=("Segoe UI", 15, "bold"))
+        self.page_title.pack(side="left", padx=(22, 8))
+
+        self.source_pill = Pill(header, "—", bg=CARD, fg=TEXT_DIM,
+                                font=("Segoe UI", 8, "bold"))
+        self.source_pill.pack(side="left", padx=(6, 4))
+        self.state_pill = Pill(header, "—", bg=CARD_HI, fg=TEXT,
+                               font=("Segoe UI", 8, "bold"))
+        self.state_pill.pack(side="left", padx=2)
+        self.update_btn = ttk.Button(header, text="", style="Success.TButton",
+                                     command=self._install_update)
+        # packed only when an update is actually available
+
+        btns = tk.Frame(header, bg=BG)
+        btns.pack(side="right", padx=(0, 16))
+        ttk.Button(btns, text="⟳ Refresh", style="Ghost.TButton",
+                   command=self.force_refresh).pack(side="left", padx=3)
+        ttk.Button(btns, text="⚙  Settings", style="Ghost.TButton",
+                   command=self.open_settings).pack(side="left", padx=3)
+        AccentRule(self._main, colors=[LINE_SOFT, RED, LINE_SOFT],
+                   height=2).pack(fill="x")
 
     def _make_tab(self, key: str):
         if key in self._tab_cache:
@@ -233,8 +325,9 @@ class ValtixApp(tk.Tk):
 
     def show_tab(self, key: str) -> None:
         self._active = key
-        for k, lbl in self._nav_items.items():
-            lbl.configure(fg=TEXT if k == key else TEXT_DIM)
+        self._refresh_nav_states()
+        if getattr(self, "page_title", None) and self.page_title.winfo_exists():
+            self.page_title.configure(text=NAV_LABELS.get(key, key))
         for k, frame in list(self._tabs.items()):
             if k != key:
                 frame.pack_forget()
@@ -426,7 +519,81 @@ class ValtixApp(tk.Tk):
             pass
         self.after(80, self._drain_ui_queue)
 
-    # ── background task runner ─────────────────────────────────
+    # ── updates ────────────────────────────────────────────────
+    def _startup_update_check(self) -> None:
+        try:
+            if not self.core.all_settings().get("autoUpdates"):
+                return
+        except Exception:
+            return
+        self.run_bg(
+            lambda: __import__("gui.update_check", fromlist=["check_for_update"]
+                               ).check_for_update(),
+            self._on_update_check)
+
+    def _on_update_check(self, result) -> None:
+        if result.get("status") != "update_available":
+            return
+        self._latest_version = result.get("latest", "")
+        try:
+            self.update_btn.configure(
+                text=f"⬆ Update v{self._latest_version}")
+            self.update_btn.pack(side="left", padx=(10, 4))
+        except tk.TclError:
+            pass
+        self.notify(f"Valtix v{self._latest_version} is available — "
+                    "use the Update button to install.", kind="info")
+
+    def _install_update(self) -> None:
+        from tkinter import messagebox
+        version = getattr(self, "_latest_version", "?")
+        if not messagebox.askyesno(
+                "Valtix update",
+                f"Install update v{version} now?\n\n"
+                "Your data (history, crosshair library, settings) is kept. "
+                "Valtix restarts when finished."):
+            return
+        self.update_btn.configure(state="disabled", text="Updating…")
+        import gui.update_check as upd
+        self.run_bg(
+            lambda: upd.perform_update(getattr(self, "_latest_version", None),
+                                       log=lambda m: self._post_ui(
+                                           lambda: self.toast.show(m))),
+            self._on_update_installed,
+            on_error=lambda e: self._post_ui(
+                lambda: self.toast.show(f"Update failed: {e}", kind="error")))
+
+    def _on_update_installed(self, result) -> None:
+        if not result.get("ok"):
+            self.toast.show(result.get("message", "Update failed"), kind="error")
+            self.update_btn.configure(state="normal")
+            return
+        self.toast.show(result.get("message", "Updated."), kind="ok")
+        self.after(1200, self._restart_after_update)
+
+    def _restart_after_update(self) -> None:
+        import gui.update_check as upd
+        try:
+            self._shutting = True
+            self._poll_stop.set()
+            self._queue_monitor.stop()
+            try:
+                self.crosshair_engine.stop()
+            except Exception:
+                pass
+            try:
+                self.core.stop_services()
+            except Exception:
+                pass
+            self.destroy()
+        except Exception:
+            pass
+        try:
+            upd.restart_app()
+        except Exception as e:
+            self.toast.show(f"Installed, but auto-restart failed: {e} — "
+                            "start Valtix manually.", kind="error")
+
     def run_bg(self, fn, on_done, on_error=None) -> None:
         def work():
             try:
