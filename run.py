@@ -16,6 +16,16 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+
+# native crashes (segfaults in extensions, etc.) normally vanish under
+# pythonw — dump them to a file so they can actually be diagnosed
+import faulthandler
+try:
+    _crash_log = open(os.path.join(ROOT, ".sightware", "crash.log"),
+                      "ab")
+    faulthandler.enable(_crash_log)
+except Exception:
+    pass
 if getattr(sys, "frozen", False):
     # PyInstaller build: keep data & logs next to the exe, not in the
     # ephemeral _MEIPASS bundle dir.
