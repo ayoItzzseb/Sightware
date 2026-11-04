@@ -1,4 +1,4 @@
-"""Valtix GUI — queue monitor.
+"""Sightware GUI — queue monitor.
 
 A light background thread that watches the party/queue snapshot (one cheap
 glz read every few seconds while the client is live) and drives:
@@ -33,7 +33,7 @@ class QueueMonitor:
         self._last_text = ""
 
     def start(self) -> None:
-        self._thread = threading.Thread(target=self._run, name="valtix-queue",
+        self._thread = threading.Thread(target=self._run, name="sightware-queue",
                                         daemon=True)
         self._thread.start()
 

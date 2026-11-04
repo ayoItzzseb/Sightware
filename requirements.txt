@@ -1,4 +1,4 @@
-# Valtix — GUI Edition
+# Sightware — GUI Edition
 # The web stack (Flask, its 12 transitive deps) is gone: the desktop GUI is
 # tkinter, which ships with Python. Only the Riot client layer needs packages.
 #

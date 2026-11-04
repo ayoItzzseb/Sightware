@@ -26,7 +26,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def main() -> int:
-    print("Valtix GUI — core smoke test (demo mode)\n")
+    print("Sightware GUI — core smoke test (demo mode)\n")
 
     from gui.core import AppCore
     core = AppCore()

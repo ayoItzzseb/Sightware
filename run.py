@@ -1,4 +1,4 @@
-"""Valtix — GUI Edition launcher.
+"""Sightware — GUI Edition launcher.
 
 Replaces the v2.5.8 Flask/terminal launcher with a single native desktop
 app. No web server, no browser — the tkinter window is the whole UI.
@@ -21,7 +21,7 @@ if getattr(sys, "frozen", False):
     # ephemeral _MEIPASS bundle dir.
     ROOT = Path(sys.executable).resolve().parent
     os.environ.setdefault("VALTIX_DATA_DIR", str(ROOT / "data"))
-    os.environ.setdefault("VALTIX_LOG_DIR", str(ROOT / "logs"))
+    os.environ.setdefault("SIGHTWARE_LOG_DIR", str(ROOT / "logs"))
 BACKEND = ROOT / "backend"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(BACKEND))
@@ -52,9 +52,9 @@ def _single_instance() -> None:
         k32.CreateMutexW.restype = wintypes.HANDLE
         k32.CreateMutexW.argtypes = (wintypes.LPVOID, wintypes.BOOL,
                                      wintypes.LPCWSTR)
-        k32.CreateMutexW(None, False, "ValtixGuiSingleInstanceMutex")
+        k32.CreateMutexW(None, False, "SightwareGuiSingleInstanceMutex")
         if k32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-            print("Valtix is already running.", flush=True)
+            print("Sightware is already running.", flush=True)
             sys.exit(0)
     except Exception:
         pass
@@ -76,7 +76,7 @@ def main() -> None:
         import requests  # noqa: F401
         import tzdata  # noqa: F401
     except ImportError as e:
-        print(f"Valtix is missing a dependency ({e.name}).\n"
+        print(f"Sightware is missing a dependency ({e.name}).\n"
               f"Run install.bat (or: python -m pip install -r requirements.txt).")
         sys.exit(1)
 
@@ -99,7 +99,7 @@ def _once() -> None:
     core = AppCore()
     board = core.live_board()
     state = board.get("stateLabel", "—")
-    print(f"\nValtix — {state} · {board.get('map', '—')} "
+    print(f"\nSightware — {state} · {board.get('map', '—')} "
           f"{('· ' + board['mode']) if board.get('mode') else ''} "
           f"[{board.get('source', '?')}]")
     try:

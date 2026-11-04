@@ -1,4 +1,4 @@
-"""Valtix GUI — Crosshair tab (crosshair overlay editor & control).
+"""Sightware GUI — Crosshair tab (crosshair overlay editor & control).
 
 The whole crosshair-overlay feature lives here: live preview, style editor
 (cross / circle / dot / pixel art / imported image), the preset library, ADS
@@ -16,7 +16,7 @@ import crosshair_render as render
 import crosshair_store as store
 from ..theme import (AMBER, BG, BG_RAISED, CARD, CARD_HI, LINE, RED, RED_SOFT,
                    TEAL, TEAL_DIM, TEXT, TEXT_DIM, TEXT_FAINT)
-from ..widgets import ScrollFrame, Switch, ValtixSlider, card, section_title
+from ..widgets import ScrollFrame, Switch, SightwareSlider, card, section_title
 
 STYLES = [("cross", "CROSS"), ("circle", "CIRCLE"), ("arc", "ARC"),
           ("pixels", "PIXEL ART"), ("custom", "IMAGE")]
@@ -33,7 +33,7 @@ def _slider(parent, label, frm, to, get, set_cb, fmt="{:.4f}", bg=CARD, res=None
     tk.Label(row, text=label, bg=bg, fg=TEXT_DIM,
              font=("Segoe UI", 9), width=12, anchor="w").pack(side="left")
     # effectively continuous: typed values are never stepped away
-    s = ValtixSlider(row, from_=frm, to=to, value=get(), resolution=0.0001,
+    s = SightwareSlider(row, from_=frm, to=to, value=get(), resolution=0.0001,
                      length=150, bg=bg)
     entry_var = tk.StringVar(value=_fmt_val(get(), fmt))
     entry = tk.Entry(row, textvariable=entry_var, width=9, bd=0,
@@ -91,7 +91,7 @@ def _alpha_slider(parent, get_hex, set_hex, bg=CARD):
         a = round(int(s.get()) * 255 / 100)
         set_hex(src[:7] + f"{a:02X}")
         val.configure(text=f"{s.get():.0f}%")
-    s = ValtixSlider(row, from_=0, to=100, value=start, resolution=1,
+    s = SightwareSlider(row, from_=0, to=100, value=start, resolution=1,
                      length=120, bg=bg, command=_change)
     s.pack(side="left", padx=(2, 4), pady=2)
     val.pack(side="left")
@@ -914,7 +914,7 @@ class CrosshairTab(tk.Frame):
         self.app.toast.show(f'Loaded "{name}".', kind="ok")
 
     def _delete_preset(self, name):
-        if messagebox.askyesno("Valtix", f'Delete "{name}" from the library?'):
+        if messagebox.askyesno("Sightware", f'Delete "{name}" from the library?'):
             store.delete_from_library(name)
             self._refresh_library()
 
@@ -929,7 +929,7 @@ class CrosshairTab(tk.Frame):
     def _import_library(self):
         guess = store.detect_import_dir()
         if guess and messagebox.askyesno(
-                "Valtix", f"Import crosshairs from:\n{guess}\n\n"
+                "Sightware", f"Import crosshairs from:\n{guess}\n\n"
                           "(Cancel to pick a different folder)"):
             src = guess
         else:

@@ -1,4 +1,4 @@
-"""Valtix GUI — Encounters tab (local smurf radar / encounter log)."""
+"""Sightware GUI — Encounters tab (local smurf radar / encounter log)."""
 from __future__ import annotations
 
 import time

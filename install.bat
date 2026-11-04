@@ -1,10 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Valtix GUI Edition - Install
+title Sightware GUI Edition - Install
 
 echo.
-echo   VALTIX - GUI EDITION - INSTALLER
+echo   SIGHTWARE - GUI EDITION - INSTALLER
 echo   =================================
 echo   Native desktop app. No web server, no browser.
 echo.
@@ -46,9 +46,9 @@ if errorlevel 1 (
 )
 
 echo.
-echo   Done. Start Valtix with start.bat (or: python run.py)
+echo   Done. Start Sightware with start.bat (or: python run.py)
 echo.
 
-set /p LAUNCH="Launch Valtix now? [y/N] "
+set /p LAUNCH="Launch Sightware now? [y/N] "
 if /i "%LAUNCH%"=="y" start "" pythonw run.py
 endlocal

@@ -1,4 +1,4 @@
-"""Valtix GUI — Live Board tab.
+"""Sightware GUI — Live Board tab.
 
 Mirrors the original web dashboard: single centered column, one combined
 team table with "// YOUR TEAM" / "// ENEMY TEAM" section rows, two-line
@@ -481,7 +481,7 @@ class MatchHero(tk.Canvas):
                 panel_w = 0
         if panel_w == 0:
             self.create_text(w - 28, h // 2,
-                             text=(board.get("map") or "VALTIX").upper(),
+                             text=(board.get("map") or "SIGHTWARE").upper(),
                              fill=mix("#151B27", "#F5F7FA", 0.06),
                              font=("Segoe UI", 36, "bold"), anchor="e")
 

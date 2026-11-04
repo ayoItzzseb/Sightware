@@ -1,4 +1,4 @@
-"""Valtix GUI — main window."""
+"""Sightware GUI — main window."""
 from __future__ import annotations
 
 import json
@@ -60,10 +60,10 @@ NAV_LABELS = {k: l for k, l, _i in NAV}
 SIDEBAR_W = 208
 
 
-class ValtixApp(tk.Tk):
+class SightwareApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Valtix — Local Edition")
+        self.title("Sightware")
         self.configure(background=BG)
         self.geometry("1280x820")
         self.minsize(1080, 660)
@@ -135,11 +135,11 @@ class ValtixApp(tk.Tk):
 
     def _apply_window_icon(self) -> None:
         try:
-            self.iconbitmap(self._resource("valtix.ico"))
+            self.iconbitmap(self._resource("sightware.ico"))
         except Exception:
             try:
                 self.iconphoto(True, tk.PhotoImage(
-                    file=self._resource("assets", "valtix-brand-256.png")))
+                    file=self._resource("assets", "sightware-brand-256.png")))
             except Exception:
                 pass
 
@@ -305,9 +305,9 @@ class ValtixApp(tk.Tk):
         tb.pack(fill="x", side="top")
         tb.pack_propagate(False)
         self._titlebar = tb
-        tk.Label(tb, text="V", bg=BG_RAISED, fg=RED,
+        tk.Label(tb, text="S", bg=BG_RAISED, fg=RED,
                  font=("Segoe UI", 11, "bold")).pack(side="left", padx=(12, 2))
-        self.tb_title = tk.Label(tb, text="Valtix — Local Edition",
+        self.tb_title = tk.Label(tb, text="Sightware",
                                  bg=BG_RAISED, fg=TEXT_DIM,
                                  font=("Segoe UI", 9))
         self.tb_title.pack(side="left")
@@ -349,11 +349,11 @@ class ValtixApp(tk.Tk):
 
         brand = tk.Frame(self.sidebar, bg=BG_RAISED)
         brand.pack(fill="x", padx=18, pady=(8, 14))
-        # the real Valtix logo (assets/valtix-brand-256.png)
+        # the real Sightware logo (assets/sightware-brand-256.png)
         try:
             from PIL import Image as _PILImage
             from PIL import ImageTk as _PILImageTk
-            _img = _PILImage.open(self._resource("assets", "valtix-brand-256.png"))
+            _img = _PILImage.open(self._resource("assets", "sightware-brand-256.png"))
             self._brand_photo = _PILImageTk.PhotoImage(
                 _img.resize((34, 34), _PILImage.LANCZOS))
             tk.Label(brand, image=self._brand_photo, bg=BG_RAISED
@@ -367,7 +367,7 @@ class ValtixApp(tk.Tk):
                               font=("Segoe UI", 15, "bold"))
         brand_txt = tk.Frame(brand, bg=BG_RAISED)
         brand_txt.pack(side="left", padx=(10, 0))
-        tk.Label(brand_txt, text="VALTIX", bg=BG_RAISED, fg=TEXT,
+        tk.Label(brand_txt, text="SIGHTWARE", bg=BG_RAISED, fg=TEXT,
                  font=("Segoe UI", 13, "bold")).pack(anchor="w")
         tk.Label(brand_txt, text="LOCAL EDITION", bg=BG_RAISED, fg=TEXT_FAINT,
                  font=("Segoe UI", 7, "bold")).pack(anchor="w")
@@ -464,7 +464,7 @@ class ValtixApp(tk.Tk):
         try:
             from PIL import Image as _I
             from PIL import ImageTk as _IT
-            img = _I.open(self._resource("assets", "valtix-brand-256.png"))
+            img = _I.open(self._resource("assets", "sightware-brand-256.png"))
             self._brand_photo = _IT.PhotoImage(img.resize((34, 34), _I.LANCZOS))
             tk.Label(brand, image=self._brand_photo, bg=BG_RAISED
                      ).pack(side="left")
@@ -472,7 +472,7 @@ class ValtixApp(tk.Tk):
             pass
         brand_txt = tk.Frame(brand, bg=BG_RAISED)
         brand_txt.pack(side="left", padx=(10, 0))
-        tk.Label(brand_txt, text="VALTIX", bg=BG_RAISED, fg=TEXT,
+        tk.Label(brand_txt, text="SIGHTWARE", bg=BG_RAISED, fg=TEXT,
                  font=("Segoe UI", 13, "bold")).pack(anchor="w")
         tk.Label(brand_txt, text="LOCAL EDITION", bg=BG_RAISED, fg=TEXT_FAINT,
                  font=("Segoe UI", 7, "bold")).pack(anchor="w")
@@ -633,7 +633,7 @@ class ValtixApp(tk.Tk):
         footer = tk.Frame(self, bg=BG_RAISED, height=24)
         footer.pack(fill="x", side="bottom")
         footer.pack_propagate(False)
-        tk.Label(footer, text="Valtix is 100% local — dashboard, settings, "
+        tk.Label(footer, text="Sightware is 100% local — dashboard, settings, "
                  "history & statistics live on this PC.", bg=BG_RAISED,
                  fg=TEXT_FAINT, font=("Segoe UI", 8)).pack(side="left",
                                                            padx=(14, 0))
@@ -669,7 +669,7 @@ class ValtixApp(tk.Tk):
     # ── polling ────────────────────────────────────────────────
     def start_poll(self) -> None:
         self._poll_thread = threading.Thread(
-            target=self._poll_loop, name="valtix-poll", daemon=True)
+            target=self._poll_loop, name="sightware-poll", daemon=True)
         self._poll_thread.start()
 
     def _poll_loop(self) -> None:
@@ -827,17 +827,17 @@ class ValtixApp(tk.Tk):
             self.update_btn.pack(side="left", padx=(10, 4))
         except tk.TclError:
             pass
-        self.notify(f"Valtix v{self._latest_version} is available — "
+        self.notify(f"Sightware v{self._latest_version} is available — "
                     "use the Update button to install.", kind="info")
 
     def _install_update(self) -> None:
         from tkinter import messagebox
         version = getattr(self, "_latest_version", "?")
         if not messagebox.askyesno(
-                "Valtix update",
+                "Sightware update",
                 f"Install update v{version} now?\n\n"
                 "Your data (history, crosshair library, settings) is kept. "
-                "Valtix restarts when finished."):
+                "Sightware restarts when finished."):
             return
         self.update_btn.configure(state="disabled", text="Updating…")
         import gui.update_check as upd
@@ -878,7 +878,7 @@ class ValtixApp(tk.Tk):
             upd.restart_app()
         except Exception as e:
             self.toast.show(f"Installed, but auto-restart failed: {e} — "
-                            "start Valtix manually.", kind="error")
+                            "start Sightware manually.", kind="error")
 
     def run_bg(self, fn, on_done, on_error=None) -> None:
         def work():
@@ -1070,5 +1070,5 @@ class SidebarCanvas(tk.Canvas):
 
 
 def run() -> None:
-    app = ValtixApp()
+    app = SightwareApp()
     app.mainloop()

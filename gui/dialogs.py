@@ -1,4 +1,4 @@
-"""Valtix GUI — dialogs: settings, match report, player profile, privacy."""
+"""Sightware GUI — dialogs: settings, match report, player profile, privacy."""
 from __future__ import annotations
 
 import os
@@ -29,7 +29,7 @@ SETTING_DEFS = [
      "d": "Shows your preferred pick and a recommendation while agent select "
           "is open. Read-only — it never selects anything."},
     {"key": "assistantAutoStart", "t": "Start automatically with VALORANT",
-     "d": "The assistant runs whenever Valtix is running and VALORANT is open."},
+     "d": "The assistant runs whenever Sightware is running and VALORANT is open."},
     {"key": "rememberAgent", "t": "Remember my preferred agent",
      "d": "Persists the agent you last locked as your default pick."},
     {"grp": "Data & privacy", "key": "localHistoryEnabled", "t": "Local history",
@@ -44,13 +44,13 @@ SETTING_DEFS = [
           "requests."},
     {"key": "autoUpdates", "t": "Automatic updates",
      "d": "Off by default. When on, UPDATE.bat may query the release source "
-          "you configured (UPDATE_REPO). Valtix never downloads or replaces "
+          "you configured (UPDATE_REPO). Sightware never downloads or replaces "
           "code on its own."},
     {"grp": "App & alerts", "key": "soundAlerts", "t": "Alert sounds",
      "d": "Play a sound when a queue pops, a match is found or a match "
           "ends (the toast always shows either way)."},
     {"key": "startWithWindows", "t": "Start with Windows",
-     "d": "Launches Valtix (console-free) when you sign in, via a shortcut "
+     "d": "Launches Sightware (console-free) when you sign in, via a shortcut "
           "in your Startup folder. Applied when you save settings."},
 ]
 
@@ -76,7 +76,7 @@ class _Dialog(tk.Toplevel):
 # ── settings ───────────────────────────────────────────────────
 class SettingsDialog(_Dialog):
     def __init__(self, app):
-        super().__init__(app, "Valtix Settings", 780, 640)
+        super().__init__(app, "Sightware Settings", 780, 640)
         self._vars: dict[str, tk.BooleanVar | tk.StringVar] = {}
         settings = app.core.all_settings()
         self._per_map = dict(settings.get("perMap") or {})
@@ -160,7 +160,7 @@ class SettingsDialog(_Dialog):
                    command=self._check_updates).pack(side="right", padx=6)
         ttk.Button(btns, text="Open data folder", style="Ghost.TButton",
                    command=self._open_data).pack(side="right", padx=6)
-        ttk.Button(btns, text="Quit Valtix", style="Danger.TButton",
+        ttk.Button(btns, text="Quit Sightware", style="Danger.TButton",
                    command=self._quit).pack(side="right", padx=6)
 
     def _section(self, body, title: str) -> None:
@@ -277,7 +277,7 @@ class SettingsDialog(_Dialog):
             return
         self._quit_armed = 1
         self.after(4000, lambda: setattr(self, "_quit_armed", 0))
-        self.app.toast.show("Click Quit again to stop Valtix completely.",
+        self.app.toast.show("Click Quit again to stop Sightware completely.",
                             kind="warn")
 
 

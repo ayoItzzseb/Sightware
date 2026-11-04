@@ -7,7 +7,7 @@ import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-VALTIX_DIR = Path(os.environ.get("VALTIX_LOG_DIR")
+SIGHTWARE_DIR = Path(os.environ.get("SIGHTWARE_LOG_DIR")
             or (Path(__file__).resolve().parent.parent / ".valtix"))
 
 MAX_BYTES = 2 * 1024 * 1024
@@ -39,16 +39,16 @@ class _UtcFormatter(logging.Formatter):
         return redact(super().format(record))
 
 def get_logger(component: str, filename: str | None = None) -> logging.Logger:
-    name = f"valtix.{component}"
+    name = f"sightware.{component}"
     logger = logging.getLogger(name)
     if logger.handlers:
         return logger
     logger.setLevel(logging.INFO)
     logger.propagate = False
     try:
-        VALTIX_DIR.mkdir(exist_ok=True)
+        SIGHTWARE_DIR.mkdir(exist_ok=True)
         handler = RotatingFileHandler(
-            VALTIX_DIR / f"{filename or component}.log",
+            SIGHTWARE_DIR / f"{filename or component}.log",
             maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8")
         handler.setFormatter(_UtcFormatter(
             fmt=f"%(asctime)s.%(msecs)03dZ [{component}] %(levelname)s %(message)s",

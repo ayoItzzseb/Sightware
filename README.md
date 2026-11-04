@@ -1,6 +1,6 @@
 <div align="center">
 
-# Valtix
+# Sightware
 
 **Live VALORANT scoreboard, crosshair overlay, and display workspace —
 one native Windows app. No web dashboard, no browser, no server. Just Python.**
@@ -8,13 +8,13 @@ one native Windows app. No web dashboard, no browser, no server. Just Python.**
 Live Board · Performance · Encounters · Sessions · Collection ·
 **Crosshair Overlay** · **Display (ChromaDesk)**
 
-<img src="docs/live-board.png" alt="Valtix Live Board (demo data)" width="90%">
+<img src="docs/live-board.png" alt="Sightware Live Board (demo data)" width="90%">
 
 </div>
 
 ---
 
-Valtix is a ground-up native tkinter rebuild of the old Flask + web dashboard
+Sightware is a ground-up native tkinter rebuild of the old Flask + web dashboard
 *plus* two built-in power tools:
 
 - **Crosshair Overlay** — a fully featured crosshair editor and a
@@ -22,7 +22,7 @@ Valtix is a ground-up native tkinter rebuild of the old Flask + web dashboard
 - **Display workspace** — ChromaDesk's monitor controls: resolution modes,
   NVIDIA Digital Vibrance, desktop saturation, and display profiles.
 
-Everything runs locally on your PC. Valtix talks only to your own Riot client
+Everything runs locally on your PC. Sightware talks only to your own Riot client
 session (the same local API the game UI uses) — and the overlay/display tools
 never touch game processes at all.
 
@@ -36,25 +36,25 @@ never touch game processes at all.
 |---|---|
 | **Windows 10 or 11** (64-bit) | Display & overlay features are Windows-only |
 | **Python 3.12+** | [python.org](https://www.python.org/downloads/) — tick **"Add python.exe to PATH"** during install |
-| **VALORANT** (optional) | Without it, Valtix runs on clearly-labelled demo data |
+| **VALORANT** (optional) | Without it, Sightware runs on clearly-labelled demo data |
 | **NVIDIA GPU + driver** (optional) | Only needed for Digital Vibrance; everything else works on any GPU |
 
 ### Steps
 
-1. **Download or clone this repository** to any folder, e.g. `C:\Tools\Valtix`.
+1. **Download or clone this repository** to any folder, e.g. `C:\Tools\Sightware`.
 
 2. **Double-click `install.bat`.** It checks your Python version, installs
    the pinned packages (`requests`, `python-dotenv`, `tzdata`, `rich`,
    `pillow` — five, that is it), verifies the install, and offers to launch.
 
-3. **Double-click `start.bat`** to run Valtix any time
+3. **Double-click `start.bat`** to run Sightware any time
    (or `python run.py --console` in a terminal for debug logging).
 
-4. *(Optional)* ⚙ **Settings** → *Start with Windows* adds Valtix to your
+4. *(Optional)* ⚙ **Settings** → *Start with Windows* adds Sightware to your
    Startup folder.
 
 > **Prefer a single `.exe`?** Run `build.bat` — it produces
-> `dist\Valtix\Valtix.exe` with PyInstaller (no Python needed on the target
+> `dist\Sightware\Sightware.exe` with PyInstaller (no Python needed on the target
 > PC). Note: on PCs with **Smart App Control** enabled, unsigned freshly
 > built executables can be blocked; run from source (steps 2–3), or
 > distribute signed / through the Microsoft Store.
@@ -62,7 +62,7 @@ never touch game processes at all.
 ### First run
 
 - With VALORANT open, the Live Board goes **LIVE · LOCAL CLIENT** and shows
-  your real lobby. Without it, Valtix runs on demo data so you can explore
+  your real lobby. Without it, Sightware runs on demo data so you can explore
   everything.
 - Data (history, sessions, crosshair library, display profiles) is created on
   first run under `backend\data\` — and that folder is yours: back it up,
@@ -83,7 +83,7 @@ never touch game processes at all.
 | **Display** | ChromaDesk integrated: per-monitor resolution modes (favorites + Windows' own 15-second apply-or-revert confirmation), NVIDIA Digital Vibrance, whole-desktop saturation (0–300 % via the Magnification API), manual display profiles, restore-on-exit. |
 
 Plus: ⚙ Settings dialog with every switch, queue & match alerts with toasts
-and sounds, dark title bar, window/tab memory, and a two-press **Quit Valtix**.
+and sounds, dark title bar, window/tab memory, and a two-press **Quit Sightware**.
 
 ---
 
@@ -112,7 +112,7 @@ The overlay was designed **from the ground up to be as passive as possible**:
 
 - **No hooks** — hotkeys are read with passive `GetAsyncKeyState` polling;
   nothing is installed into the input pipeline.
-- **No process access** — Valtix never opens a handle to any game process,
+- **No process access** — Sightware never opens a handle to any game process,
   reads no memory, captures no frames.
 - **A plain see-through window** — the overlay is a topmost layered window
   that only draws its own pixels; clicks pass straight through to your game.
@@ -130,7 +130,7 @@ use it at your own discretion.
 
 ## 🔒 Privacy
 
-Valtix is 100 % local. Dashboard, settings, history, statistics, the crosshair
+Sightware is 100 % local. Dashboard, settings, history, statistics, the crosshair
 library and display profiles live on this PC. Riot communication is only your
 own client session — the same local API the game UI uses. No telemetry, no
 accounts, no cloud.
@@ -160,7 +160,7 @@ backend/                flat domain modules (riot_client, live_match, history,
 gui/                    tkinter app: theme, widgets, tabs/, dialogs
 tests/                  smoke tests (no network needed)
 install.bat / start.bat / build.bat
-Valtix.spec             PyInstaller spec for build.bat
+Sightware.spec             PyInstaller spec for build.bat
 ```
 
 Tab UIs are plain `tk.Frame`s registered in `gui/app.py`; heavy work runs on
@@ -173,6 +173,6 @@ worker threads and reaches the UI through a thread-safe queue.
 Released under the **GPL-3.0** license (see `LICENSE`). Includes the
 ChromaDesk display engine by the same author.
 
-VALORANT is a trademark of Riot Games, Inc. Valtix is an independent local
+VALORANT is a trademark of Riot Games, Inc. Sightware is an independent local
 utility, not affiliated with or endorsed by Riot Games. Use of in-game
 overlays is at your own discretion.

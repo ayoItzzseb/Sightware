@@ -28,10 +28,10 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def main() -> int:
-    print("Valtix GUI — window smoke test (demo mode)\n")
-    from gui.app import ValtixApp
+    print("Sightware GUI — window smoke test (demo mode)\n")
+    from gui.app import SightwareApp
 
-    app = ValtixApp()
+    app = SightwareApp()
     app.withdraw()  # never flash a window during the test
 
     def pump(times: int = 8) -> None:

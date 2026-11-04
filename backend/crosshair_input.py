@@ -114,7 +114,7 @@ class GlobalInput:
     def start(self) -> None:
         if self._thread is None:
             self._stop.clear()
-            self._thread = threading.Thread(target=self._loop, name="valtix-crosshair-input",
+            self._thread = threading.Thread(target=self._loop, name="sightware-crosshair-input",
                                             daemon=True)
             self._thread.start()
 

@@ -1,7 +1,7 @@
-"""Valtix GUI — GitHub update checker & self-updater (Redesign Prototype).
+"""Sightware GUI — GitHub update checker & self-updater (Redesign Prototype).
 
 Source of truth: the VERSION file on the repository's main branch.
-When a newer version is published, Valtix can update itself in place:
+When a newer version is published, Sightware can update itself in place:
 
 * downloads the repo ZIP from codeload.github.com
 * extracts it and overlays every file EXCEPT user data
@@ -21,7 +21,7 @@ from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 VERSION_PATH = APP_ROOT / "VERSION"
-DEFAULT_REPO = "ayoItzzseb/Valtix"
+DEFAULT_REPO = "ayoItzzseb/Sightware"
 
 # never overwritten by an update
 PRESERVE = ("backend/data", ".valtix", ".env", "docs", "__pycache__")
@@ -84,7 +84,7 @@ def check_for_update(repo: str | None = None, timeout: float = 6.0) -> dict:
                 "message": f"Update available: v{latest} (you have v{mine})",
                 "latest": latest}
     return {"status": "up_to_date",
-            "message": f"Valtix v{mine} is up to date."}
+            "message": f"Sightware v{mine} is up to date."}
 
 
 # ── self-update ────────────────────────────────────────────────
@@ -119,13 +119,13 @@ def perform_update(latest: str | None = None, log=None) -> dict:
             f"https://codeload.github.com/{repo}/zip/refs/heads/main",
             timeout=60, stream=True)
         resp.raise_for_status()
-        tmp_zip = Path(tempfile.gettempdir()) / f"valtix-update-{latest or 'main'}.zip"
+        tmp_zip = Path(tempfile.gettempdir()) / f"sightware-update-{latest or 'main'}.zip"
         with open(tmp_zip, "wb") as f:
             for chunk in resp.iter_content(1 << 15):
                 f.write(chunk)
 
         say("Extracting…")
-        tmp_dir = Path(tempfile.mkdtemp(prefix="valtix-update-"))
+        tmp_dir = Path(tempfile.mkdtemp(prefix="sightware-update-"))
         with zipfile.ZipFile(tmp_zip) as zf:
             zf.extractall(tmp_dir)
         inner = next(tmp_dir.iterdir())  # repo-<sha>/ folder
@@ -158,7 +158,7 @@ def perform_update(latest: str | None = None, log=None) -> dict:
 
 
 def restart_app() -> None:
-    """Relaunch Valtix from source (source-run installs only)."""
+    """Relaunch Sightware from source (source-run installs only)."""
     import subprocess
     import sys
     if getattr(sys, "frozen", False):

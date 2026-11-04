@@ -1,4 +1,4 @@
-"""Valtix GUI — shared custom widgets.
+"""Sightware GUI — shared custom widgets.
 
 Canvas-based, dependency-free: sortable virtualized DataTable, toggle
 switch, win-probability bar, pills, stat cards, RR chart, toasts and an
@@ -996,7 +996,7 @@ class ImageCache:
         try:
             import requests
             resp = requests.get(url, timeout=8,
-                                headers={"User-Agent": "valtix-gui/3.0"})
+                                headers={"User-Agent": "sightware-gui/3.0"})
             resp.raise_for_status()
             if not resp.content.startswith(b"\x89PNG"):
                 raise ValueError("not a PNG")
@@ -1125,7 +1125,7 @@ class BusyDots:
 
 
 # ── slider ─────────────────────────────────────────────────────
-class ValtixSlider(tk.Canvas):
+class SightwareSlider(tk.Canvas):
     """Theme slider with a visible trough, red fill and clear round thumb.
 
     Drop-in for tk.Scale in this app: get()/set()/configure(state=|from_=|to=|

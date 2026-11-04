@@ -2,12 +2,12 @@
 
 Parses the community-documented semicolon format, e.g.
     0;P;c;5;o;1;d;1;z;3;f;0;0t;1;0l;3;0o;2;0a;1;0f;0;1b;0
-into Valtix's crosshair config (and back). Pure string work — no game
+into Sightware's crosshair config (and back). Pure string work — no game
 interaction of any kind.
 
 Colour index mapping (in-game colour picker order):
     0 white · 1 green · 2 yellow · 3 orange · 4 pink · 5 cyan · 6 red · 7 purple
-Outer-line keys (1t/1l/1o/1a) have no equivalent in Valtix's single-ring
+Outer-line keys (1t/1l/1o/1a) have no equivalent in Sightware's single-ring
 model and are ignored on import.
 """
 from __future__ import annotations
@@ -100,7 +100,7 @@ def decode_with_info(code: str):
     elif 0 <= idx < len(COLORS):
         c["tint"] = COLORS[idx] + "FF"
 
-    # Valtix has one ring of lines; VALORANT has inner (0*) AND outer (1*).
+    # Sightware has one ring of lines; VALORANT has inner (0*) AND outer (1*).
     # Prefer the inner set when it is visible, otherwise fall back to the
     # outer set — many real codes are outer-line-only.
     inner_alpha = max(num("0a", 1), 0)

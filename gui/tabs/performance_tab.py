@@ -1,4 +1,4 @@
-"""Valtix GUI — Performance tab (RR history, insights, splits, matches)."""
+"""Sightware GUI — Performance tab (RR history, insights, splits, matches)."""
 from __future__ import annotations
 
 import time

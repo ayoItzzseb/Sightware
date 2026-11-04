@@ -1,4 +1,4 @@
-"""Generates the Valtix brand icon (multi-size .ico + 256px PNG).
+"""Generates the Sightware brand icon (multi-size .ico + 256px PNG).
 
 Design: dark-navy rounded tile with a subtle vertical gradient, hairline
 border, and a bold angular red V (VALORANT palette: #FF4655 on #0F1923).
@@ -62,11 +62,11 @@ def main() -> None:
     img = rounded_gradient()
     draw_v(img)
 
-    png_path = ROOT / "assets" / "valtix-brand-256.png"
+    png_path = ROOT / "assets" / "sightware-brand-256.png"
     png_path.parent.mkdir(exist_ok=True)
     img.save(png_path)
 
-    ico_path = ROOT / "valtix.ico"
+    ico_path = ROOT / "sightware.ico"
     img.save(ico_path, format="ICO",
              sizes=[(16, 16), (20, 20), (24, 24), (32, 32), (48, 48),
                     (64, 64), (128, 128), (256, 256)])

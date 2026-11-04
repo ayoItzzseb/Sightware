@@ -26,7 +26,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def main() -> int:
-    print("Valtix — ChromaDesk display tab smoke test\n")
+    print("Sightware — ChromaDesk display tab smoke test\n")
 
     # engine standalone
     print("engine")
@@ -63,8 +63,8 @@ def main() -> int:
     # tab inside the app
     print("tab")
     import tkinter as tk
-    from gui.app import ValtixApp
-    app = ValtixApp()
+    from gui.app import SightwareApp
+    app = SightwareApp()
     app.withdraw()
 
     def pump(sec: float) -> None:

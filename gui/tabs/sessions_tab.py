@@ -1,4 +1,4 @@
-"""Valtix GUI — Sessions tab (session tracker with goals)."""
+"""Sightware GUI — Sessions tab (session tracker with goals)."""
 from __future__ import annotations
 
 import time

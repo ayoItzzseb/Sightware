@@ -29,7 +29,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def main() -> int:
-    print("Valtix — crosshair overlay smoke test\n")
+    print("Sightware — crosshair overlay smoke test\n")
 
     # the user's live overlay.json may legitimately have the overlay switched
     # off — snapshot and force it on for the engine checks, restore afterwards
@@ -66,8 +66,8 @@ def main() -> int:
     # ── engine + tab UI ────────────────────────────────────────
     print("engine + tab")
     import tkinter as tk
-    from gui.app import ValtixApp
-    app = ValtixApp()
+    from gui.app import SightwareApp
+    app = SightwareApp()
     app.withdraw()
 
     def pump(sec: float) -> None:

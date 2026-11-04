@@ -1,5 +1,20 @@
 # Changelog
 
+## v4.2.0 — Rebrand
+
+- Valtix is now **Sightware** — new logo, new name, same everything.
+- GitHub repo renamed; old links redirect automatically.
+
+## v4.2.0 — Rebrand
+
+- Sightware is now **Sightware** — new logo, new name, same everything.
+- GitHub repo renamed; old links redirect automatically.
+
+## v4.2.0 — Rebrand
+
+- Sightware is now **Sightware** — new logo, new name, same everything.
+- GitHub repo renamed; old links redirect automatically.
+
 ## v4.1.0 — Feature wave
 
 - **Crosshair share codes** — paste any VALORANT crosshair code to import it;

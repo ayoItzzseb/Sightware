@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for Valtix GUI Edition.
-# Build with:  pyinstaller Valtix.spec --noconfirm
+# PyInstaller spec for Sightware GUI Edition.
+# Build with:  pyinstaller Sightware.spec --noconfirm
 # The backend modules are imported flat (run.py puts backend/ on sys.path),
 # so they must be listed as hidden imports for the static analyzer.
 
@@ -8,14 +8,14 @@ a = Analysis(
     ["run.py"],
     pathex=[".", "backend"],
     binaries=[],
-    datas=[("VERSION", "."), ("valtix.ico", "."),
-           ("assets/valtix-brand-256.png", "assets")],
+    datas=[("VERSION", "."), ("sightware.ico", "."),
+           ("assets/sightware-brand-256.png", "assets")],
     hiddenimports=[
         # backend domain modules (flat imports, some inside functions)
         "live_match", "valapi", "sample_match", "sample_data", "history",
         "encounter_log", "session_tracker", "inventory", "match_meta",
         "party_detector", "pick_advisor", "assistant",
-        "settings", "riot_client", "agents", "vconstants", "valtixlog",
+        "settings", "riot_client", "agents", "vconstants", "sightwarelog",
         # crosshair overlay (flat backend modules)
         "crosshair_store", "crosshair_render", "crosshair_overlay",
         "crosshair_codes",
@@ -43,7 +43,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Valtix",
+    name="Sightware",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -56,7 +56,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="valtix.ico",
+    icon="sightware.ico",
 )
 
 coll = COLLECT(
@@ -65,5 +65,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="Valtix",
+    name="Sightware",
 )

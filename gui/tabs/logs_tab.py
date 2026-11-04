@@ -1,4 +1,4 @@
-"""Valtix GUI — Logs tab (tails the rotating .valtix logs, secrets redacted)."""
+"""Sightware GUI — Logs tab (tails the rotating .valtix logs, secrets redacted)."""
 from __future__ import annotations
 
 import os
@@ -16,7 +16,7 @@ class LogsTab(tk.Frame):
     def __init__(self, master, app):
         super().__init__(master, bg=BG)
         self.app = app
-        self.log_dir = (os.environ.get("VALTIX_LOG_DIR")
+        self.log_dir = (os.environ.get("SIGHTWARE_LOG_DIR")
                         or Path(__file__).resolve().parents[2] / ".valtix")
         self.log_dir = Path(self.log_dir)
 

@@ -1,4 +1,4 @@
-"""Valtix GUI — AppCore service layer.
+"""Sightware GUI — AppCore service layer.
 
 This replaces the v2.5.8 Flask HTTP layer (backend/app.py) with a plain,
 thread-safe service object the tkinter UI talks to directly. All domain
@@ -25,12 +25,12 @@ import settings
 import history
 import inventory
 import party_detector
-import valtixlog
+import sightwarelog
 from agents import AGENTS, resolve_agent
 from riot_client import REGIONS, LocalAuth, RiotClient, ClientNotReady
 from vconstants import APP_VERSION, STATES, rank_from_tier
 
-LOG = valtixlog.get_logger("gui")
+LOG = sightwarelog.get_logger("gui")
 
 _CACHE_TTL = float(os.getenv("PLAYER_CACHE_TTL", "60"))
 _HOLD_SECS = 12
@@ -691,7 +691,7 @@ class AppCore:
     def health(self) -> dict:
         return {
             "ok": True,
-            "service": "valtix-local",
+            "service": "sightware-local",
             "appVersion": APP_VERSION,
             "edition": "gui",
             "dataSourcePreference": self.client.source_pref,

@@ -1,12 +1,12 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Valtix GUI Edition - Build .exe
+title Sightware GUI Edition - Build .exe
 
 echo.
-echo   VALTIX - GUI EDITION - EXE BUILDER
+echo   SIGHTWARE - GUI EDITION - EXE BUILDER
 echo   ==================================
-echo   Builds a single dist\Valtix.exe (PyInstaller, onefile, windowed).
+echo   Builds a single dist\Sightware.exe (PyInstaller, onefile, windowed).
 echo   Build-time only: PyInstaller is installed into your Python.
 echo.
 
@@ -26,7 +26,7 @@ if errorlevel 1 (
 )
 
 echo   [2/2] Building...
-python -m PyInstaller Valtix.spec --noconfirm --clean
+python -m PyInstaller Sightware.spec --noconfirm --clean
 if errorlevel 1 (
     echo   [!] Build failed - see the output above.
     pause
@@ -34,7 +34,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo   Done: dist\Valtix.exe
+echo   Done: dist\Sightware.exe
 echo   Copy it anywhere - it creates data\ and logs\ folders next to itself.
 echo.
 pause

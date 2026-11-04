@@ -1,4 +1,4 @@
-"""Valtix GUI — Collection tab (inventory value from your own client)."""
+"""Sightware GUI — Collection tab (inventory value from your own client)."""
 from __future__ import annotations
 
 import time

@@ -1,6 +1,6 @@
-"""Valtix GUI — Display tab (ChromaDesk integrated).
+"""Sightware GUI — Display tab (ChromaDesk integrated).
 
-ChromaDesk's display workspace inside Valtix: per-display resolution modes
+ChromaDesk's display workspace inside Sightware: per-display resolution modes
 with favorites and Windows' own 15-second revert, NVIDIA Digital Vibrance,
 whole-desktop saturation (Magnification API), and manual display profiles.
 Engine: backend.display_engine (Windows display APIs + NVAPI only — never
@@ -14,7 +14,7 @@ from tkinter import messagebox, ttk
 import display_engine as deng
 from ..theme import (AMBER, BG, BG_RAISED, BLUE, CARD, CARD_HI, LINE, RED,
                    RED_SOFT, TEAL, TEAL_DIM, TEXT, TEXT_DIM, TEXT_FAINT)
-from ..widgets import ScrollFrame, Switch, ValtixSlider, card, section_title
+from ..widgets import ScrollFrame, Switch, SightwareSlider, card, section_title
 
 REVERT_SECONDS = 15
 
@@ -134,7 +134,7 @@ class DisplayTab(tk.Frame):
         self.dvc_value.pack(side="right")
         row = tk.Frame(f, bg=CARD)
         row.pack(fill="x")
-        self.dvc_scale = ValtixSlider(row, from_=0, to=100, value=0, resolution=1,
+        self.dvc_scale = SightwareSlider(row, from_=0, to=100, value=0, resolution=1,
                                       length=380, bg=CARD, state="disabled",
                                       command=lambda v: self._defer("_apply_vibrance"))
         self.dvc_scale.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=8)
@@ -160,7 +160,7 @@ class DisplayTab(tk.Frame):
         self.sat_value.pack(side="right")
         row = tk.Frame(f, bg=CARD)
         row.pack(fill="x")
-        self.sat_scale = ValtixSlider(row, from_=0, to=300, value=100, resolution=5,
+        self.sat_scale = SightwareSlider(row, from_=0, to=300, value=100, resolution=5,
                                       length=380, bg=CARD, state="disabled",
                                       command=lambda v: self._defer("_apply_saturation"))
         self.sat_scale.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=8)
@@ -186,7 +186,7 @@ class DisplayTab(tk.Frame):
         self.warmth_value.pack(side="right")
         row = tk.Frame(f, bg=CARD)
         row.pack(fill="x")
-        self.warmth_scale = ValtixSlider(row, from_=-100, to=100, value=0,
+        self.warmth_scale = SightwareSlider(row, from_=-100, to=100, value=0,
                                          resolution=5, length=380, bg=CARD,
                                          state="disabled",
                                          command=lambda v: self._defer("_apply_warmth"))
@@ -215,7 +215,7 @@ class DisplayTab(tk.Frame):
             self.warmth_value.configure(text=f"{w:+d}" if w else "0")
             self._update_chips()
         except Exception as exc:
-            messagebox.showerror("Valtix", str(exc))
+            messagebox.showerror("Sightware", str(exc))
 
     def _restore_warmth(self):
         if not isinstance(self._sat, deng.MagnifierSaturation):
@@ -225,7 +225,7 @@ class DisplayTab(tk.Frame):
             self.warmth_scale.set(0)
             self.warmth_value.configure(text="0")
         except Exception as exc:
-            messagebox.showerror("Valtix", str(exc))
+            messagebox.showerror("Sightware", str(exc))
 
     # ── monitor map ────────────────────────────────────────────
     def _build_monitor_map(self, parent):
@@ -284,7 +284,7 @@ class DisplayTab(tk.Frame):
                         self._on_device_selected()
                         self._draw_monitor_map()
                     except Exception as exc:
-                        messagebox.showerror("Valtix", str(exc))
+                        messagebox.showerror("Sightware", str(exc))
                 return
 
     # ── auto display profiles ──────────────────────────────────
@@ -522,7 +522,7 @@ class DisplayTab(tk.Frame):
         try:
             self.display.select_device(info["name"])
         except Exception as exc:
-            messagebox.showerror("Valtix", str(exc))
+            messagebox.showerror("Sightware", str(exc))
             return
         if isinstance(self._dvc, deng.NvidiaDVC):
             try:
@@ -627,7 +627,7 @@ class DisplayTab(tk.Frame):
                 return
             result = self.display.set_mode(mode)
         except Exception as exc:
-            messagebox.showerror("Valtix", str(exc))
+            messagebox.showerror("Sightware", str(exc))
             return
         if result != deng.DISP_CHANGE_SUCCESSFUL:
             self.mode_status.configure(text="Windows could not apply that mode.", fg=RED_SOFT)
@@ -711,14 +711,14 @@ class DisplayTab(tk.Frame):
                 return
             result = self.display.set_mode(original)
             if result != deng.DISP_CHANGE_SUCCESSFUL:
-                messagebox.showerror("Valtix", "Windows could not restore the previous mode.")
+                messagebox.showerror("Sightware", "Windows could not restore the previous mode.")
                 return
             self.display.refresh(device)
             self._fill_modes()
             self._update_chips()
             self.mode_status.configure(text="Restored the original Windows mode.", fg=TEAL)
         except Exception as exc:
-            messagebox.showerror("Valtix", str(exc))
+            messagebox.showerror("Sightware", str(exc))
 
     # ── vibrance ───────────────────────────────────────────────
     def _init_dvc_ui(self, reset=False):
@@ -749,7 +749,7 @@ class DisplayTab(tk.Frame):
             self.dvc_value.configure(text=str(level))
             self._update_chips()
         except Exception as exc:
-            messagebox.showerror("Valtix", str(exc))
+            messagebox.showerror("Sightware", str(exc))
 
     def _restore_vibrance(self):
         if not isinstance(self._dvc, deng.NvidiaDVC):
@@ -760,7 +760,7 @@ class DisplayTab(tk.Frame):
             self.dvc_value.configure(text=str(level))
             self._update_chips()
         except Exception as exc:
-            messagebox.showerror("Valtix", str(exc))
+            messagebox.showerror("Sightware", str(exc))
 
     # ── saturation ─────────────────────────────────────────────
     def _init_saturation_ui(self):
@@ -797,7 +797,7 @@ class DisplayTab(tk.Frame):
             self.sat_value.configure(text=f"{percent}%")
             self._update_chips()
         except Exception as exc:
-            messagebox.showerror("Valtix", str(exc))
+            messagebox.showerror("Sightware", str(exc))
             self._init_saturation_ui()
 
     def _restore_saturation(self):
@@ -808,7 +808,7 @@ class DisplayTab(tk.Frame):
             self._init_saturation_ui()
             self._update_chips()
         except Exception as exc:
-            messagebox.showerror("Valtix", str(exc))
+            messagebox.showerror("Sightware", str(exc))
 
     # ── profiles ───────────────────────────────────────────────
     def _current_profile(self) -> dict:
@@ -930,7 +930,7 @@ class DisplayTab(tk.Frame):
             except Exception as exc:
                 errors.append(str(exc))
         if errors:
-            messagebox.showerror("Valtix", "Profile applied with issues:\n" + "\n".join(errors))
+            messagebox.showerror("Sightware", "Profile applied with issues:\n" + "\n".join(errors))
         else:
             self.app.toast.show(f'Applied "{name}".', kind="ok")
 
@@ -948,7 +948,7 @@ class DisplayTab(tk.Frame):
         name = self._selected_profile()
         if not name:
             return
-        if not messagebox.askyesno("Valtix", f'Delete display profile "{name}"?'):
+        if not messagebox.askyesno("Sightware", f'Delete display profile "{name}"?'):
             return
         profiles = deng.read_profiles()
         profiles.pop(name, None)
@@ -978,12 +978,12 @@ class DisplayTab(tk.Frame):
             except Exception as exc:
                 errors.append(str(exc))
         if errors:
-            messagebox.showerror("Valtix", "Restore finished with issues:\n" + "\n".join(errors))
+            messagebox.showerror("Sightware", "Restore finished with issues:\n" + "\n".join(errors))
         else:
             self.app.toast.show("Display changes restored.", kind="ok")
 
     def shutdown(self):
-        """Called by ValtixApp on quit: revert pending mode, restore DVC + saturation."""
+        """Called by SightwareApp on quit: revert pending mode, restore DVC + saturation."""
         self._cancel_revert(show=False)
         if getattr(self, "_dvc", None) is not None:
             try:

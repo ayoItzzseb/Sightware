@@ -157,7 +157,7 @@ def start() -> None:
     if _THREAD is not None and _THREAD.is_alive():
         return
     _STOP.clear()
-    _THREAD = threading.Thread(target=_run, name="valtix-assistant", daemon=True)
+    _THREAD = threading.Thread(target=_run, name="sightware-assistant", daemon=True)
     _THREAD.start()
 
 

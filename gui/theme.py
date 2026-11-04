@@ -1,4 +1,4 @@
-"""Valtix GUI — design system (Redesign Prototype).
+"""Sightware GUI — design system (Redesign Prototype).
 
 "Signal" theme: deep charcoal-navy surfaces, warm orange identity accent,
 violet secondary accent. Applied to ttk widgets plus shared helpers.

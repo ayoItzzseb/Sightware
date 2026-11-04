@@ -1,4 +1,4 @@
-"""Display engine — ChromaDesk's display controls integrated into Valtix.
+"""Display engine — ChromaDesk's display controls integrated into Sightware.
 
 Lifted from the ChromaDesk prototype (Desktop/ChromaDeskPrototype): Windows
 display-mode enumeration/switching, NVIDIA Digital Vibrance (NVAPI), and
@@ -396,13 +396,13 @@ class MagnifierSaturation:
 
     def set_percent(self, percent):
         if self.has_existing_effect:
-            raise OSError("A non-neutral Windows desktop color effect is already active. Disable it and restart Valtix before applying saturation.")
+            raise OSError("A non-neutral Windows desktop color effect is already active. Disable it and restart Sightware before applying saturation.")
         current = MAGCOLOREFFECT()
         if not self.dll.MagGetFullscreenColorEffect(ctypes.byref(current)):
             raise ctypes.WinError(ctypes.get_last_error(), "Could not verify the current desktop effect before updating saturation")
         expected = self.applied_matrix if self.active else self.original.transform
         if not self._matches(current.transform, expected):
-            raise OSError("Another color tool changed the Windows desktop effect. Valtix stopped live updates and left that effect untouched.")
+            raise OSError("Another color tool changed the Windows desktop effect. Sightware stopped live updates and left that effect untouched.")
         percent = max(0, min(300, int(percent)))
         self.percent = percent
         matrix = self._combined()
@@ -455,7 +455,7 @@ class MagnifierSaturation:
             if not self.dll.MagGetFullscreenColorEffect(ctypes.byref(current)):
                 raise ctypes.WinError(ctypes.get_last_error(), "Could not verify the current desktop effect before restoring")
             if not self._matches(current.transform, self.applied_matrix):
-                raise OSError("Another color tool changed the Windows desktop effect. Valtix left the current effect untouched.")
+                raise OSError("Another color tool changed the Windows desktop effect. Sightware left the current effect untouched.")
             self._set(self.original.transform)
             self.active = False
             self.percent = 100
@@ -507,7 +507,7 @@ def saturation_error() -> str | None:
     return _SAT_ERROR
 
 
-# ── display profiles (Valtix data dir) ─────────────────────────
+# ── display profiles (Sightware data dir) ─────────────────────────
 
 _DATA_DIR = (os.environ.get("VALTIX_DATA_DIR")
              or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
