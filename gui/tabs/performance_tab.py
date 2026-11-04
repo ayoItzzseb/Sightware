@@ -9,7 +9,7 @@ from tkinter import ttk
 from ..theme import (AMBER, BG, CARD, LINE, ORANGE, RED, TEAL, TEXT, TEXT_DIM,
                    TEXT_FAINT, WIN, LOSS)
 from ..widgets import (Banner, CalendarHeatmap, DataTable, Column, MiniProgress,
-                     RRChart, ScrollFrame, StatCard, section_title)
+                     RRChart, ScrollFrame, Sparkline, StatCard, section_title)
 
 from ..dialogs import MatchDetailDialog, PlayerProfileDialog
 
@@ -76,6 +76,19 @@ class PerformanceTab(tk.Frame):
         for c in (self.c_rank, self.c_wr, self.c_matches,
                   self.c_net, self.c_best, self.c_streak):
             c.pack(side="left", padx=(0, 8), fill="x", expand=True)
+
+        self.trend_wrap = tk.Frame(body, bg=BG)
+        self.trend_wrap.pack(fill="x", padx=16, pady=(2, 0))
+        tk.Label(self.trend_wrap, text="TRENDS - last 20 ranked matches",
+                 bg=BG, fg=TEXT_FAINT, font=("Segoe UI", 8, "bold")
+                 ).pack(anchor="w")
+        trend_row = tk.Frame(self.trend_wrap, bg=BG)
+        trend_row.pack(fill="x")
+        self.trend_kd = Sparkline(trend_row, label="K/D")
+        self.trend_acs = Sparkline(trend_row, label="ACS")
+        self.trend_rr = Sparkline(trend_row, label="RR delta")
+        for sp in (self.trend_kd, self.trend_acs, self.trend_rr):
+            sp.pack(side="left", padx=(0, 10), fill="x", expand=True)
 
         self.next_wrap = tk.Frame(body, bg=BG)
         self.next_lbl = tk.Label(self.next_wrap, text="", bg=BG, fg=TEXT_DIM,
@@ -155,6 +168,8 @@ class PerformanceTab(tk.Frame):
         match_head = tk.Frame(body, bg=BG)
         match_head.pack(fill="x", padx=16, pady=(12, 4))
         section_title(match_head, "matches").pack(side="left")
+        ttk.Button(match_head, text="Export CSV", style="Ghost.TButton",
+                   command=self._export_matches_csv).pack(side="right")
         tk.Label(match_head, text="click a row for the full match report",
                  bg=BG, fg=TEXT_FAINT, font=("Segoe UI", 8)).pack(side="left", padx=8)
         self.match_table = DataTable(body, [
@@ -219,6 +234,7 @@ class PerformanceTab(tk.Frame):
         self.loading.configure(text=f"Failed to load: {err.splitlines()[-1]}")
 
     def _apply(self, payload: dict) -> None:
+        self._last_payload = payload
         if payload.get("error"):
             self.loading.configure(text=payload["error"])
             return
@@ -277,8 +293,103 @@ class PerformanceTab(tk.Frame):
             self.next_lbl.configure(
                 text=f"Next rank: {nxt.get('name')} — {nxt.get('rrNeeded', 0)} RR to go")
             self.next_bar.set(nxt.get("progress", 0))
+            self._render_projection(payload, nxt)
         else:
             self.next_wrap.pack_forget()
+        self._render_trends(payload)
+        self._render_map_picks(payload)
+
+    def _render_projection(self, payload, nxt):
+        points = [p for p in (payload.get("points") or []) if p.get("delta") is not None]
+        if len(points) < 5 or not nxt:
+            return
+        deltas = [p["delta"] for p in points[-20:]]
+        avg = sum(deltas) / len(deltas)
+        needed = nxt.get("rrNeeded", 0) or 0
+        if avg <= 0:
+            text = (f"Projection: {nxt.get('name')} needs {needed} more RR — "
+                    f"you are averaging {avg:+.1f} RR/match over your last "
+                    f"{len(deltas)}.")
+        else:
+            games = max(1, round(needed / avg))
+            text = (f"Projection: {nxt.get('name')} in ~{games} matches at your "
+                    f"current pace ({avg:+.1f} RR/match over {len(deltas)} games).")
+        if not hasattr(self, "_proj_banner"):
+            self._proj_banner = Banner(self.scroll.inner, "", "info")
+        self._proj_banner.set(text)
+        try:
+            self._proj_banner.pack(fill="x", padx=16, pady=(0, 4),
+                                   before=self.insights_wrap)
+        except Exception:
+            self._proj_banner.pack(fill="x", padx=16, pady=(0, 4))
+
+    def _render_trends(self, payload):
+        pts = (payload.get("points") or [])[-20:]
+        kd = [p["kd"] for p in pts if p.get("kd") is not None]
+        acs = [p["acs"] for p in pts if p.get("acs") is not None]
+        rr = [p["delta"] for p in pts if p.get("delta") is not None]
+        self.trend_kd.set_values(kd)
+        self.trend_acs.set_values(acs)
+        self.trend_rr.set_values(rr)
+
+    def _render_map_picks(self, payload):
+        """Per-map agent recommendation computed from match history."""
+        agg = {}
+        for p in (payload.get("points") or []):
+            map_name, agent = p.get("map"), p.get("agent")
+            if not map_name or not agent:
+                continue
+            slot = agg.setdefault(map_name, {}).setdefault(agent, [0, 0])
+            slot[1] += 1
+            if p.get("result") == "Victory":
+                slot[0] += 1
+        picks = []
+        for map_name, agents in agg.items():
+            rated = [(wins / g, g, agent) for agent, (wins, g) in agents.items()
+                     if g >= 3]
+            if rated:
+                rated.sort(reverse=True)
+                wr, g, agent = rated[0]
+                picks.append(f"{map_name}: {agent} ({round(wr * 100)}% WR, {g} games)")
+        if not hasattr(self, "_picks_banner"):
+            self._picks_banner = Banner(self.scroll.inner, "", "info")
+        if picks:
+            self._picks_banner.set("Best agents by map — " + "  ·  ".join(picks[:6]))
+            try:
+                self._picks_banner.pack(fill="x", padx=16, pady=(0, 4),
+                                        after=self._proj_banner)
+            except Exception:
+                self._picks_banner.pack(fill="x", padx=16, pady=(0, 4))
+
+    def _export_matches_csv(self):
+        from tkinter import filedialog
+        dest = filedialog.asksaveasfilename(
+            title="Export matches as CSV", defaultextension=".csv",
+            filetypes=[("CSV", "*.csv")])
+        if not dest:
+            return
+        import csv as csvmod
+        payload = getattr(self, "_last_payload", None) or {}
+        meta = payload.get("matchMeta") or {}
+        rows = []
+        for p in reversed((payload.get("points") or [])):
+            m = meta.get(p.get("matchId") or "") or {}
+            rows.append({
+                "date": _ts(p.get("ts")),
+                "result": p.get("result") or "",
+                "rrDelta": p.get("delta"),
+                "agent": p.get("agent") or "",
+                "map": p.get("map") or "",
+                "kd": p.get("kd"),
+                "acs": p.get("acs"),
+                "note": m.get("note") or "",
+            })
+        with open(dest, "w", newline="", encoding="utf-8") as f:
+            w = csvmod.DictWriter(f, fieldnames=["date", "result", "rrDelta",
+                                                 "agent", "map", "kd", "acs", "note"])
+            w.writeheader()
+            w.writerows(rows)
+        self.app.toast.show(f"Exported {len(rows)} matches to CSV.", kind="ok")
 
     def _render_insights(self, insights: list[dict]) -> None:
         for child in self.insights_wrap.winfo_children():

@@ -24,7 +24,7 @@ DATA_DIR = Path(os.environ.get("VALTIX_DATA_DIR")
 # web-era keys (openDashboardOnLaunch / hideTerminalOnLaunch /
 # dashboardEnabled) replaced by their GUI-edition equivalents.
 SETTING_DEFS = [
-    {"grp": "Assistant & Insta-Lock", "key": "assistantEnabled",
+    {"grp": "Assistant", "key": "assistantEnabled",
      "t": "Agent-select assistant",
      "d": "Shows your preferred pick and a recommendation while agent select "
           "is open. Read-only — it never selects anything."},
@@ -32,12 +32,6 @@ SETTING_DEFS = [
      "d": "The assistant runs whenever Valtix is running and VALORANT is open."},
     {"key": "rememberAgent", "t": "Remember my preferred agent",
      "d": "Persists the agent you last locked as your default pick."},
-    {"key": "quickLockEnabled", "t": "Insta-Lock button (user-triggered)",
-     "d": "Adds an agent picker and an INSTA-LOCK button to Agent Select: "
-          "choose an agent, press once, Valtix performs that single select + "
-          "lock for you immediately. No background loop, no automation — "
-          "nothing happens unless you press.",
-     "policy": True},
     {"grp": "Data & privacy", "key": "localHistoryEnabled", "t": "Local history",
      "d": "Encounter log, RR history and session tracking stored in "
           "backend/data/. Turning it off stops all recording."},
@@ -116,16 +110,31 @@ class SettingsDialog(_Dialog):
                 self._section(body, defn["grp"])
                 last_grp = defn["grp"]
             self._toggle_row(body, defn, settings)
-            if defn.get("policy"):
-                self._policy_note(body, settings)
+
+        # ui theme (needs restart)
+        self._section(body, "appearance")
+        theme_row = tk.Frame(body, bg=CARD)
+        theme_row.pack(fill="x", padx=18, pady=(0, 8))
+        tk.Label(theme_row, text="UI theme", bg=CARD, fg=TEXT_DIM,
+                 font=("Segoe UI", 9), width=16, anchor="w").pack(side="left")
+        theme_cb = ttk.Combobox(theme_row, state="readonly", width=14,
+                                values=["signal", "classic", "violet"])
+        theme_cb.set(str(self._vars.get("uiTheme").get()
+                         if "uiTheme" in self._vars
+                         else settings.get("uiTheme", "signal")))
+        theme_cb.pack(side="left")
+        self._vars["uiTheme"] = theme_cb_var = tk.StringVar(
+            value=theme_cb.get())
+        theme_cb.configure(textvariable=theme_cb_var)
+        tk.Label(theme_row, text="restart Valtix to apply", bg=CARD,
+                 fg=TEXT_FAINT, font=("Segoe UI", 8)).pack(side="left", padx=8)
 
         # per-map preferences
         self._section(body, "per-map agent preferences")
         pm_wrap = tk.Frame(body, bg=CARD, highlightbackground=LINE,
                            highlightthickness=1, padx=12, pady=10)
         pm_wrap.pack(fill="x", padx=16, pady=(0, 8))
-        tk.Label(pm_wrap, text="Used by the pick advisor and preselected in the "
-                 "Insta-Lock picker.", bg=CARD, fg=TEXT_DIM,
+        tk.Label(pm_wrap, text="Used by the pick advisor during agent select.", bg=CARD, fg=TEXT_DIM,
                  font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 6))
         self._pm_rows = tk.Frame(pm_wrap, bg=CARD)
         self._pm_rows.pack(fill="x")

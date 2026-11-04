@@ -3,7 +3,7 @@
 This replaces the v2.5.8 Flask HTTP layer (backend/app.py) with a plain,
 thread-safe service object the tkinter UI talks to directly. All domain
 modules (riot_client, live_match, encounter_log, history, session_tracker,
-inventory, quicklock, assistant, settings, ...) are used unchanged.
+inventory, assistant, settings, ...) are used unchanged.
 
 The semantics of the old REST endpoints are preserved one-to-one: the same
 caches, holds, background jobs and sample fallbacks, so behavior matches
@@ -19,7 +19,6 @@ import assistant
 import encounter_log
 import match_meta
 import pick_advisor
-import quicklock
 import sample_match
 import session_tracker
 import settings
@@ -319,15 +318,9 @@ class AppCore:
         return board
 
     def finalize_board(self, board: dict) -> dict:
-        """Port of _finalize_board: assistant snapshot, quicklock strip, art strip."""
+        """Port of _finalize_board: assistant snapshot, art strip."""
         board = dict(board)
         board.update(assistant.snapshot_for_board())
-        state = board.get("state")
-        board["quickLock"] = {**quicklock.status(),
-                              "enabled": settings.quick_lock_allowed(),
-                              "acknowledged": bool(settings.get("quickLockPolicyAck")),
-                              "preferred": quicklock.preferred_for_map(
-                                  board.get("map") if state == "PREGAME" else None)}
         if not settings.get("loadArt"):
             board = self._strip_art(board)
         return board
@@ -681,27 +674,9 @@ class AppCore:
     def get_match_meta(self, match_id: str) -> dict:
         return match_meta.get_one(self._current_puuid(), match_id.strip())
 
-    # ── queue / quicklock / region / info ───────────────────────
+    # ── queue / region / info ───────────────────────────────────
     def queue_state(self) -> dict:
         return self.client.party_state(self._region_arg())
-
-    def quicklock_status(self) -> dict:
-        return {**quicklock.status(),
-                "enabled": settings.quick_lock_allowed(),
-                "acknowledged": bool(settings.get("quickLockPolicyAck")),
-                "master": bool(settings.get("quickLockEnabled")),
-                "preferred": quicklock.preferred_for_map(None)}
-
-    def quicklock_lock(self, agent: str | None, mode: str = "lock") -> dict:
-        if agent is not None and not resolve_agent(agent):
-            return {"ok": False, "status": "error",
-                    "message": f"Unknown agent '{agent}'."}
-        return quicklock.lock_now(agent, mode=mode)
-
-    def quicklock_stop(self) -> dict:
-        st = quicklock.status()
-        return {"ok": True, "running": False,
-                "status": st.get("status", "idle")}
 
     def region_info(self) -> dict:
         detected = None

@@ -344,3 +344,65 @@ def import_library(source_dir: str) -> dict:
     except OSError as e:
         result["errors"].append(str(e))
     return result
+
+
+# ── preset packs (share the whole library as one zip) ──────────
+
+def export_pack(dest_path: str) -> dict:
+    """Zip every library preset + custom png into dest_path."""
+    import zipfile
+    result = {"presets": 0, "images": 0}
+    with zipfile.ZipFile(dest_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fn in sorted(os.listdir(_LIBRARY)):
+            if fn.endswith(".json"):
+                zf.write(os.path.join(_LIBRARY, fn), "library/" + fn)
+                result["presets"] += 1
+        if os.path.isdir(_CUSTOM):
+            for fn in sorted(os.listdir(_CUSTOM)):
+                if fn.endswith(".png"):
+                    zf.write(os.path.join(_CUSTOM, fn), "library/custom/" + fn)
+                    result["images"] += 1
+    return result
+
+
+def import_pack(src_path: str) -> dict:
+    """Merge a preset-pack zip into the library. Existing files are skipped."""
+    import zipfile
+    result = {"presets": 0, "images": 0, "skipped": 0}
+    _ensure_dirs()
+    with zipfile.ZipFile(src_path) as zf:
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            name = info.filename.replace("\\", "/")
+            if name.startswith("library/custom/") and name.endswith(".png"):
+                dest = os.path.join(_CUSTOM, os.path.basename(name))
+                if os.path.exists(dest):
+                    result["skipped"] += 1
+                    continue
+                with zf.open(info) as fsrc, open(dest, "wb") as fdst:
+                    shutil.copyfileobj(fsrc, fdst)
+                result["images"] += 1
+            elif name.startswith("library/") and name.endswith(".json"):
+                dest = os.path.join(_LIBRARY, os.path.basename(name))
+                if os.path.exists(dest):
+                    result["skipped"] += 1
+                    continue
+                with zf.open(info) as fsrc, open(dest, "wb") as fdst:
+                    shutil.copyfileobj(fsrc, fdst)
+                result["presets"] += 1
+    return result
+
+
+# ── per-app crosshair memory ───────────────────────────────────
+
+_PER_APP_FILE = os.path.join(_BASE, "per-app.json")
+
+
+def get_per_app() -> dict:
+    """{windowTitle: presetName} — crosshair switched in per whitelisted app."""
+    return _read(_PER_APP_FILE, {}) or {}
+
+
+def set_per_app(mapping: dict) -> None:
+    _write(_PER_APP_FILE, mapping or {})

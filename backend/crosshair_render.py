@@ -88,7 +88,7 @@ def config_extent(cfg: dict) -> tuple[int, int]:
     dot_o = max(float(dot.get("outline", {}).get("thickness", 0) or 0), 0)
     dot_r = (dot_size + dot_o) / 2 if dot_size > 0 else 0
 
-    if style == "circle":
+    if style in ("circle", "arc"):
         radius = gap + thickness / 2
         r = radius + thickness / 2 + outline / 2
         ext = max(r, dot_r)
@@ -163,7 +163,7 @@ def make_vector_photo(cfg: dict):
     if not _PIL:
         return None
     c = cfg.get("crosshair", {})
-    if c.get("style") not in ("cross", "circle"):
+    if c.get("style") not in ("cross", "circle", "arc"):
         return None
 
     gap = float(c.get("gap", 0) or 0)
@@ -185,7 +185,7 @@ def make_vector_photo(cfg: dict):
     dot_r = (dot_size + dot_o) / 2 if dot_size > 0 else 0
 
     style = c.get("style")
-    if style == "circle":
+    if style in ("circle", "arc"):
         radius = gap + thickness / 2
         ext = radius + thickness / 2 + o_t / 2
     else:
@@ -218,6 +218,16 @@ def make_vector_photo(cfg: dict):
                    (cx + outer) * SS, (cy + outer) * SS],
                   outline=color, width=max(int(round(W * SS)), 1))
 
+    def arc(R, W, color, sweep_deg):
+        """Ring segment centred on the top of the circle (12 o'clock),
+        sweeping `sweep_deg` degrees symmetrically."""
+        outer = R + W / 2
+        half = max(min(float(sweep_deg), 360), 20) / 2
+        bbox = [(cx - outer) * SS, (cy - outer) * SS,
+                (cx + outer) * SS, (cy + outer) * SS]
+        d.arc(bbox, start=270 - half, end=270 + half,
+              fill=color, width=max(int(round(W * SS)), 1))
+
     def dot_pass():
         if dot_size <= 0:
             return
@@ -235,12 +245,19 @@ def make_vector_photo(cfg: dict):
                        (cx + dot_size / 2) * SS, (cy + dot_size / 2) * SS],
                       fill=dot_tint)
 
-    if style == "circle":
+    if style in ("circle", "arc"):
+        sweep = float(c.get("arcSweep", 270) or 270)
         if o_t > 0:
             # outline centered on the same radius, wide enough to surround the
             # main ring by o_t/2 on both sides — it must hug, not float outside
-            ring(radius, thickness + o_t, o_c)
-        ring(radius, thickness, tint)
+            if style == "arc":
+                arc(radius, thickness + o_t, o_c, sweep)
+            else:
+                ring(radius, thickness + o_t, o_c)
+        if style == "arc":
+            arc(radius, thickness, tint, sweep)
+        else:
+            ring(radius, thickness, tint)
         dot_pass()
     else:
         t = thickness
@@ -385,8 +402,9 @@ def make_image_photo(cfg: dict, size_cache: dict | None = None):
                 return None
             raw = base64.b64decode(data)
             img = Image.open(io.BytesIO(raw)).convert("RGBA")
-            if img.size != (PIXEL_SIZE, PIXEL_SIZE):
-                img = img.resize((PIXEL_SIZE, PIXEL_SIZE), Image.NEAREST)
+            size = int((cfg.get("pixels", {}) or {}).get("size", PIXEL_SIZE) or PIXEL_SIZE)
+            if img.size != (size, size):
+                img = img.resize((size, size), Image.NEAREST)
             scale = float((cfg.get("pixels", {}) or {}).get("scale", 1) or 1)
             tint = (cfg.get("pixels", {}) or {}).get("tint", "#FFFFFFFF")
         elif style == "custom":

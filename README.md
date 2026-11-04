@@ -74,7 +74,7 @@ never touch game processes at all.
 
 | Tab | What it does |
 |---|---|
-| **Live Board** | Full scoreboard: ranks, RR, peak rank, account level, party color chips, per-map win probability, agent portraits, smurf radar tags, K/D · HS% · WR recent form. Agent Select pick-advisor banner and the optional ⚡ INSTA-LOCK button (off by default, policy acknowledgement required, one press = one select + lock). The FINAL match scoreboard card fills in the moment Riot publishes the match, fully sortable. |
+| **Live Board** | Full scoreboard: ranks, RR, peak rank, account level, party color chips, per-map win probability, agent portraits, smurf radar tags, K/D · HS% · WR recent form. Agent Select pick-advisor banner with your preferred pick and a stats-based recommendation. The FINAL match scoreboard card fills in the moment Riot publishes the match, fully sortable. |
 | **Performance** | RR history chart with hover tooltips, win-rate / net-RR / personal-best cards, next-rank progress bar, per-agent & per-map splits, weekday/daypart schedule, promotion & demotion log, last 60 matches (click → full match report with round timeline), per-match notes/tags/bookmarks, play-calendar heatmap, multi-account switcher. |
 | **Encounters** | Local smurf radar: everyone you played with or against (2+ games), W–L with/against, top agent, K/D & HS% alongside, rank/peak, last seen. |
 | **Sessions** | Session tracker with goals (+RR, reach rank, N matches, stop-loss), live goal progress, archive with outcomes. |

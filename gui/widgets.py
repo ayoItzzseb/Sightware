@@ -1297,3 +1297,52 @@ class ValtixSlider(tk.Canvas):
                   x2, y2 - radius, x2, y2, x2 - radius, y2, x1 + radius, y2,
                   x1, y2, x1, y2 - radius, x1, y1 + radius, x1, y1]
         return self.create_polygon(points, smooth=True, **opts)
+
+
+# ── sparkline ──────────────────────────────────────────────────
+class Sparkline(tk.Canvas):
+    """Tiny trend line with min/max dots. values: list of floats."""
+
+    def __init__(self, master, values=None, color=RED, label="", bg=CARD,
+                 width=150, height=44, **kw):
+        super().__init__(master, width=width, height=height, bg=bg,
+                         highlightthickness=0, bd=0, **kw)
+        self._values = list(values or [])
+        self._color = color
+        self._label = label
+        self.bind("<Configure>", lambda e: self.redraw())
+        self.redraw()
+
+    def set_values(self, values, color=None):
+        self._values = list(values or [])
+        if color:
+            self._color = color
+        self.redraw()
+
+    def redraw(self):
+        self.delete("all")
+        w = max(self.winfo_width(), 1)
+        h = max(self.winfo_height(), 1)
+        vals = self._values
+        if self._label:
+            self.create_text(2, 2, text=self._label, anchor="nw",
+                             fill=TEXT_FAINT, font=("Segoe UI", 7, "bold"))
+        if len(vals) < 2:
+            self.create_text(w / 2, h / 2 + 6, text="not enough data",
+                             fill=TEXT_FAINT, font=("Segoe UI", 7))
+            return
+        lo, hi = min(vals), max(vals)
+        span = (hi - lo) or 1.0
+        pad = 6
+        step = (w - 2 * pad) / (len(vals) - 1)
+        pts = []
+        for i, v in enumerate(vals):
+            x = pad + i * step
+            y = h - pad - (v - lo) / span * (h - 2 * pad - 8)
+            pts += [x, y]
+        up = vals[-1] >= vals[0]
+        line_color = self._color if self._color != RED else (WIN if up else LOSS)
+        self.create_line(*pts, fill=line_color, width=2, smooth=True)
+        # last-point marker
+        self.create_oval(pts[-2] - 3, pts[-1] - 3, pts[-2] + 3, pts[-1] + 3,
+                         fill=line_color, outline="")

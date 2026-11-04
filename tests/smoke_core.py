@@ -37,7 +37,6 @@ def main() -> int:
     check("board has players", len(board.get("players") or []) > 0)
     check("board has teams", bool(board.get("teams")))
     check("board has assistant snapshot", "assistant" in board)
-    check("board has quicklock snapshot", "quickLock" in board)
     check("board source is demo", board.get("source") == "demo")
     fs = board.get("finalScoreboard")
     check("final scoreboard attached", isinstance(fs, dict)
@@ -114,16 +113,6 @@ def main() -> int:
 
     print("\nqueue / quicklock / region / health / privacy")
     check("queue state", isinstance(core.queue_state(), dict))
-    ql = core.quicklock_status()
-    check("quicklock status", "enabled" in ql)
-    # force the disabled state for this check, then restore the user's choice
-    _saved_ql = {k: core.all_settings().get(k) for k in
-                 ("quickLockEnabled", "quickLockPolicyAck")}
-    core.update_settings({"quickLockEnabled": False})
-    locked = core.quicklock_lock("Jett")
-    check("quicklock refused when disabled",
-          locked.get("status") == "disabled", str(locked))
-    core.update_settings(_saved_ql)
     check("region info", "regions" in core.region_info())
     check("health", core.health().get("ok") is True)
     check("privacy", "telemetry" in core.privacy())
@@ -155,8 +144,6 @@ def main() -> int:
     from gui import platform_win
     check("startup toggle off by default",
           platform_win.start_with_windows_enabled() in (True, False))
-    lock = core.quicklock_lock("Jett", mode="hover")
-    check("hover mode reachable", "status" in lock, str(lock))
 
     print()
     if FAILURES:

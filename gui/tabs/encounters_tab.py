@@ -10,6 +10,29 @@ from ..theme import (AMBER, BG, CARD, ORANGE, TEAL, TEXT, TEXT_DIM, TEXT_FAINT,
                    WIN, LOSS)
 from ..widgets import (DataTable, Column, ScrollFrame, StatCard, section_title)
 
+
+def _notes_file():
+    import os
+    base = os.environ.get("VALTIX_DATA_DIR") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "backend", "data")
+    return os.path.join(base, "encounter-notes.json")
+
+
+def _load_notes():
+    import json
+    try:
+        with open(_notes_file(), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_notes(notes):
+    import json, os
+    os.makedirs(os.path.dirname(_notes_file()), exist_ok=True)
+    with open(_notes_file(), "w", encoding="utf-8") as f:
+        json.dump(notes, f, indent=2)
+
 from ..dialogs import PlayerProfileDialog
 
 
@@ -76,7 +99,14 @@ class EncountersTab(tk.Frame):
             Column("peak", "Peak", 104),
             Column("level", "Lvl", 48, "e"),
             Column("seen", "Last seen", 82, "e"),
+            Column("note", "Note", 150, stretch=True),
         ], height=430, row_h=27, on_row_click=self._open_player)
+        tbl_btns = tk.Frame(body, bg=BG)
+        tbl_btns.pack(fill="x", pady=(6, 0))
+        ttk.Button(tbl_btns, text="Edit note on selected", style="Ghost.TButton",
+                   command=self._edit_note).pack(side="left")
+        ttk.Button(tbl_btns, text="Export CSV", style="Ghost.TButton",
+                   command=self._export_csv).pack(side="left", padx=6)
         self.table.pack(fill="x", padx=16, pady=(4, 12))
 
         self.loading = tk.Label(body, text="", bg=BG, fg=TEXT_DIM,
@@ -125,6 +155,8 @@ class EncountersTab(tk.Frame):
             rows.append({
                 "cells": {
                     "name": p.get("name") or "—",
+                    "note": _load_notes().get(
+                        (p.get("puuid") or p.get("name") or "").lower(), ""),
                     "agent": p.get("topAgent") or "—",
                     "with": str(with_n) if with_n else "",
                     "withWl": (f"{p.get('winsWith', 0)}–{p.get('lossesWith', 0)}"
@@ -160,3 +192,80 @@ class EncountersTab(tk.Frame):
     def _open_player(self, data: dict) -> None:
         if data.get("puuid"):
             PlayerProfileDialog(self.app, data["puuid"], data.get("name"))
+
+    # ── notes + csv ────────────────────────────────────────────
+    def _selected_player(self):
+        sel = self.table.curselection()
+        row = self.table.row_at(sel[0]) if hasattr(self.table, "row_at") else None
+        return row
+
+    def _edit_note(self):
+        # find selected row via DataTable's selection API
+        try:
+            idx = self.table._sel  # private fallback
+        except AttributeError:
+            idx = None
+        row = None
+        getter = getattr(self.table, "selected_row", None) \
+            or getattr(self.table, "row_at", None)
+        if getter:
+            try:
+                row = getter(sel[0]) if (sel := self.table.curselection()) else None
+            except Exception:
+                row = None
+        if not row:
+            self.app.toast.show("Select a player row first.", kind="warn")
+            return
+        data = row.get("data") or {}
+        name = (row.get("cells") or {}).get("name") or data.get("name") or ""
+        notes = _load_notes()
+        key = (data.get("puuid") or name).lower()
+        current = notes.get(key, "")
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Note - {name}")
+        dlg.configure(bg=BG)
+        dlg.transient(self.winfo_toplevel())
+        dlg.grab_set()
+        txt = tk.Text(dlg, width=44, height=5, bg=BG_RAISED, fg=TEXT,
+                      insertbackground=RED, bd=0, font=("Segoe UI", 9))
+        txt.pack(padx=14, pady=(14, 8))
+        txt.insert("1.0", current)
+
+        def save(_e=None):
+            notes[key] = txt.get("1.0", "end").strip()
+            _save_notes(notes)
+            dlg.destroy()
+            self.refresh()
+        ttk.Button(dlg, text="Save note", style="Accent.TButton",
+                   command=save).pack(pady=(0, 14))
+        txt.focus_set()
+
+    def _export_csv(self):
+        from tkinter import filedialog
+        dest = filedialog.asksaveasfilename(
+            title="Export encounters as CSV", defaultextension=".csv",
+            filetypes=[("CSV", "*.csv")])
+        if not dest:
+            return
+        import csv as csvmod
+        notes = _load_notes()
+        players = getattr(self, "_players", []) or []
+        rows = []
+        for p in players:
+            key = (p.get("puuid") or p.get("name") or "").lower()
+            rows.append({
+                "name": p.get("name") or "",
+                "agent": p.get("topAgent") or p.get("agent") or "",
+                "withGames": p.get("withCount") or 0,
+                "withWl": f"{p.get('withWins', 0)}-{p.get('withLosses', 0)}",
+                "againstGames": p.get("againstCount") or 0,
+                "rank": p.get("rank") or "",
+                "lastSeen": p.get("lastSeen") or "",
+                "note": notes.get(key, ""),
+            })
+        with open(dest, "w", newline="", encoding="utf-8") as f:
+            w = csvmod.DictWriter(f, fieldnames=list(rows[0].keys()) if rows
+                                  else ["name"])
+            w.writeheader()
+            w.writerows(rows)
+        self.app.toast.show(f"Exported {len(rows)} encounters to CSV.", kind="ok")

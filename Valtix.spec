@@ -14,10 +14,11 @@ a = Analysis(
         # backend domain modules (flat imports, some inside functions)
         "live_match", "valapi", "sample_match", "sample_data", "history",
         "encounter_log", "session_tracker", "inventory", "match_meta",
-        "party_detector", "pick_advisor", "quicklock", "assistant",
+        "party_detector", "pick_advisor", "assistant",
         "settings", "riot_client", "agents", "vconstants", "valtixlog",
         # crosshair overlay (flat backend modules)
         "crosshair_store", "crosshair_render", "crosshair_overlay",
+        "crosshair_codes",
         "crosshair_input",
         # chromadesk display engine (flat backend module)
         "display_engine",

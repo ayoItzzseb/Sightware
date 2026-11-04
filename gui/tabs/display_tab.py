@@ -12,8 +12,8 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 import display_engine as deng
-from ..theme import (AMBER, BG, BG_RAISED, CARD, CARD_HI, LINE, RED, RED_SOFT,
-                   TEAL, TEAL_DIM, TEXT, TEXT_DIM, TEXT_FAINT)
+from ..theme import (AMBER, BG, BG_RAISED, BLUE, CARD, CARD_HI, LINE, RED,
+                   RED_SOFT, TEAL, TEAL_DIM, TEXT, TEXT_DIM, TEXT_FAINT)
 from ..widgets import ScrollFrame, Switch, ValtixSlider, card, section_title
 
 REVERT_SECONDS = 15
@@ -45,6 +45,8 @@ class DisplayTab(tk.Frame):
         self._build_resolution(body)
         self._build_vibrance(body)
         self._build_saturation(body)
+        self._build_warmth(body)
+        self._build_monitor_map(body)
         self._build_profiles(body)
 
         self.refresh_all()
@@ -170,6 +172,254 @@ class DisplayTab(tk.Frame):
                                    font=("Segoe UI", 8))
         self.sat_status.pack(side="left", padx=10)
 
+    # ── warmth ─────────────────────────────────────────────────
+    def _build_warmth(self, parent):
+        section_title(parent, "color temperature (night light)").pack(
+            anchor="w", padx=16, pady=(8, 3))
+        c = card(parent)
+        c.pack(fill="x", padx=16, pady=(0, 8))
+        f = tk.Frame(c, bg=CARD)
+        f.pack(fill="both", expand=True, padx=14, pady=12)
+
+        self.warmth_value = tk.Label(f, text="0", bg=CARD, fg=TEXT,
+                                     font=("Consolas", 16, "bold"))
+        self.warmth_value.pack(side="right")
+        row = tk.Frame(f, bg=CARD)
+        row.pack(fill="x")
+        self.warmth_scale = ValtixSlider(row, from_=-100, to=100, value=0,
+                                         resolution=5, length=380, bg=CARD,
+                                         state="disabled",
+                                         command=lambda v: self._defer("_apply_warmth"))
+        self.warmth_scale.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=8)
+        labels = tk.Frame(f, bg=CARD)
+        labels.pack(fill="x")
+        tk.Label(labels, text="cool", bg=CARD, fg=BLUE,
+                 font=("Segoe UI", 8)).pack(side="left")
+        tk.Label(labels, text="neutral", bg=CARD, fg=TEXT_FAINT,
+                 font=("Segoe UI", 8)).pack(side="left", padx=14)
+        tk.Label(labels, text="warm", bg=CARD, fg=RED,
+                 font=("Segoe UI", 8)).pack(side="right")
+        btns = tk.Frame(f, bg=CARD)
+        btns.pack(fill="x", pady=(4, 0))
+        ttk.Button(btns, text="Restore neutral", style="Ghost.TButton",
+                   command=self._restore_warmth).pack(side="left")
+        self.warmth_status = tk.Label(btns, text="", bg=CARD, fg=TEXT_FAINT,
+                                      font=("Segoe UI", 8))
+        self.warmth_status.pack(side="left", padx=10)
+
+    def _apply_warmth(self):
+        if not isinstance(self._sat, deng.MagnifierSaturation):
+            return
+        try:
+            w = self._sat.set_warmth(int(self.warmth_scale.get()))
+            self.warmth_value.configure(text=f"{w:+d}" if w else "0")
+            self._update_chips()
+        except Exception as exc:
+            messagebox.showerror("Valtix", str(exc))
+
+    def _restore_warmth(self):
+        if not isinstance(self._sat, deng.MagnifierSaturation):
+            return
+        try:
+            self._sat.set_warmth(0)
+            self.warmth_scale.set(0)
+            self.warmth_value.configure(text="0")
+        except Exception as exc:
+            messagebox.showerror("Valtix", str(exc))
+
+    # ── monitor map ────────────────────────────────────────────
+    def _build_monitor_map(self, parent):
+        section_title(parent, "monitor layout").pack(anchor="w", padx=16,
+                                                     pady=(8, 3))
+        c = card(parent)
+        c.pack(fill="x", padx=16, pady=(0, 8))
+        self.mon_map = tk.Canvas(c, height=110, bg=CARD_HI,
+                                 highlightthickness=0, bd=0)
+        self.mon_map.pack(fill="x", padx=14, pady=(10, 4))
+        self.mon_map.bind("<Button-1>", self._mon_click)
+        tk.Label(c, text="Click a monitor to select it.",
+                 bg=CARD, fg=TEXT_FAINT, font=("Segoe UI", 8)
+                 ).pack(anchor="w", padx=14, pady=(0, 10))
+        self._mon_rects = []
+
+    def _draw_monitor_map(self):
+        cv = self.mon_map
+        cv.delete("all")
+        self._mon_rects.clear()
+        try:
+            from crosshair_overlay import monitor_bounds
+            monitors = monitor_bounds()
+        except Exception:
+            return
+        if not monitors:
+            return
+        minx = min(m["x"] for m in monitors)
+        miny = min(m["y"] for m in monitors)
+        maxx = max(m["x"] + m["w"] for m in monitors)
+        maxy = max(m["y"] + m["h"] for m in monitors)
+        avail_w = max(cv.winfo_width() - 20, 200)
+        avail_h = max(cv.winfo_height() - 10, 60)
+        scale = min(avail_w / max(maxx - minx, 1), avail_h / max(maxy - miny, 1))
+        for i, m in enumerate(monitors):
+            x1 = 10 + (m["x"] - minx) * scale
+            y1 = 5 + (m["y"] - miny) * scale
+            x2 = x1 + m["w"] * scale
+            y2 = y1 + m["h"] * scale
+            selected = self.display.devices[i]["name"] == self.display.device \
+                if i < len(self.display.devices) else False
+            color = RED if selected else "#22303F"
+            cv.create_rectangle(x1, y1, x2, y2, fill=color, outline=LINE, width=1)
+            cv.create_text((x1 + x2) / 2, (y1 + y2) / 2,
+                           text=f"{i + 1}" + ("  PRIMARY" if m["primary"] else ""),
+                           fill="#FFFFFF", font=("Segoe UI", 9, "bold"))
+            self._mon_rects.append((x1, y1, x2, y2, i))
+
+    def _mon_click(self, evt):
+        for x1, y1, x2, y2, i in self._mon_rects:
+            if x1 <= evt.x <= x2 and y1 <= evt.y <= y2:
+                if i < len(self.display.devices):
+                    info = self.display.devices[i]
+                    try:
+                        self.display.select_device(info["name"])
+                        self._on_device_selected()
+                        self._draw_monitor_map()
+                    except Exception as exc:
+                        messagebox.showerror("Valtix", str(exc))
+                return
+
+    # ── auto display profiles ──────────────────────────────────
+    def _build_auto_profiles(self, parent):
+        section_title(parent, "auto-apply profiles").pack(anchor="w", padx=16,
+                                                          pady=(8, 3))
+        c = card(parent)
+        c.pack(fill="x", padx=16, pady=(0, 16))
+        f = tk.Frame(c, bg=CARD)
+        f.pack(fill="both", expand=True, padx=14, pady=10)
+        tk.Label(f, text="When a whitelisted app gets focus, apply its profile "
+                         "(matched by window title, like the overlay whitelist).",
+                 bg=CARD, fg=TEXT_FAINT, font=("Segoe UI", 8)).pack(anchor="w")
+        self.auto_rows = tk.Frame(f, bg=CARD)
+        self.auto_rows.pack(fill="x", pady=(6, 0))
+        self._auto_timer = None
+        self._auto_last = None
+        self._draw_auto_profiles()
+
+    def _draw_auto_profiles(self):
+        for w in self.auto_rows.winfo_children():
+            w.destroy()
+        wl = [e.get("name", "") for e in self.engine.settings.get("whitelist", [])
+              if e.get("name")]
+        profiles = list(deng.read_profiles())
+        self._auto_map = self._load_auto_map()
+        if not wl or not profiles:
+            tk.Label(self.auto_rows, text="Add whitelist apps and save display "
+                     "profiles to wire auto-apply.", bg=CARD, fg=TEXT_FAINT,
+                     font=("Segoe UI", 8)).pack(anchor="w")
+            return
+        for name in wl:
+            row = tk.Frame(self.auto_rows, bg=CARD)
+            row.pack(fill="x", pady=1)
+            cb = ttk.Combobox(row, state="readonly", width=22,
+                              values=["—"] + profiles)
+            cb.set(self._auto_map.get(name, "—"))
+            cb.pack(side="left")
+            cb.bind("<<ComboboxSelected>>",
+                    lambda _e, n=name, c=cb: self._save_auto_map(n, c.get()))
+            tk.Label(row, text=name, bg=CARD, fg=TEXT_DIM,
+                     font=("Segoe UI", 8)).pack(side="left", padx=6)
+
+    def _auto_map_file(self):
+        import os
+        return os.path.join(deng._DATA_DIR, "display", "auto-profiles.json")
+
+    def _load_auto_map(self):
+        import json
+        try:
+            with open(self._auto_map_file(), "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_auto_map(self, name, profile):
+        import json
+        m = self._load_auto_map()
+        if profile and profile != "—":
+            m[name] = profile
+        else:
+            m.pop(name, None)
+        try:
+            with open(self._auto_map_file(), "w", encoding="utf-8") as f:
+                json.dump(m, f, indent=2)
+        except Exception:
+            pass
+
+    def _auto_poll(self):
+        """Apply the mapped profile once when a mapped app gains focus."""
+        if not self.winfo_exists():
+            return
+        try:
+            from crosshair_input import foreground_name
+            title = foreground_name()
+        except Exception:
+            title = ""
+        active = None
+        for name in self._load_auto_map():
+            if name.casefold() in (title or "").casefold():
+                active = name
+                break
+        if active and active != self._auto_last:
+            profile = self._load_auto_map().get(active)
+            if profile:
+                try:
+                    cfg = deng.read_profiles().get(profile)
+                    if cfg:
+                        self._apply_profile_data(cfg)
+                        self.app.toast.show(f"Display profile '{profile}' applied.",
+                                            kind="ok")
+                except Exception as exc:
+                    print("auto profile failed:", exc)
+        self._auto_last = active
+        self._auto_timer = self.after(800, self._auto_poll)
+
+    def _apply_profile_data(self, profile):
+        """Resolution + vibrance + saturation without the dialog flow."""
+        device = profile.get("monitor_device")
+        try:
+            if device and device != self.display.device:
+                self.display.select_device(device)
+        except Exception as exc:
+            print("auto profile device:", exc)
+        res = profile.get("resolution")
+        if isinstance(res, list) and len(res) >= 2:
+            try:
+                mode = tuple(res[:3]) if len(res) >= 3 else (res[0], res[1], 0)
+                if self.display.set_mode(mode, test=True) == deng.DISP_CHANGE_SUCCESSFUL:
+                    self.display.set_mode(mode)
+                    self.display.refresh(self.display.device)
+                    self._fill_modes()
+                    self._update_chips()
+            except Exception as exc:
+                print("auto profile mode:", exc)
+        vib = profile.get("vibrance")
+        if vib is not None and isinstance(self._dvc, deng.NvidiaDVC) \
+                and self._dvc.display_handle:
+            try:
+                self._dvc.set(vib)
+                self.dvc_scale.set(vib)
+                self.dvc_value.configure(text=str(vib))
+            except Exception as exc:
+                print("auto profile vibrance:", exc)
+        sat = profile.get("saturation")
+        if sat is not None and isinstance(self._sat, deng.MagnifierSaturation) \
+                and not self._sat.has_existing_effect:
+            try:
+                self._sat.set_percent(sat)
+                self.sat_scale.set(sat)
+                self.sat_value.configure(text=f"{sat}%")
+            except Exception:
+                pass
+
+    # ── profiles ────────────────────────────────────────────────
     # ── profiles ───────────────────────────────────────────────
     def _build_profiles(self, parent):
         section_title(parent, "display profiles").pack(anchor="w", padx=16, pady=(8, 3))
@@ -252,7 +502,17 @@ class DisplayTab(tk.Frame):
         self._update_chips()
         self._init_dvc_ui()
         self._init_saturation_ui()
+        self._init_warmth_ui()
         self._fill_profiles()
+        try:
+            self._draw_monitor_map()
+        except Exception:
+            pass
+        if not getattr(self, "_auto_timer", None):
+            try:
+                self._auto_poll()
+            except Exception:
+                pass
 
     def _on_device_selected(self, _e=None):
         label = self.device_cb.get()
@@ -517,6 +777,17 @@ class DisplayTab(tk.Frame):
         else:
             self.sat_status.configure(text=self._sat_error or "Magnification API unavailable.",
                                       fg=TEXT_FAINT)
+
+    def _init_warmth_ui(self):
+        if isinstance(self._sat, deng.MagnifierSaturation) \
+                and not self._sat.has_existing_effect:
+            self.warmth_scale.configure(state="normal")
+            self.warmth_scale.set(self._sat.warmth)
+            self.warmth_value.configure(text=f"{self._sat.warmth:+d}"
+                                        if self._sat.warmth else "0")
+        else:
+            self.warmth_scale.configure(state="disabled")
+            self.warmth_value.configure(text="—")
 
     def _apply_saturation(self):
         if not isinstance(self._sat, deng.MagnifierSaturation):

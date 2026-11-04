@@ -33,6 +33,9 @@ DEFAULTS = {
     "startWithWindows": False,
     "windowGeometry": "",
     "lastTab": "",
+    "uiTheme": "signal",
+    "onboarded": False,
+    "lastVersion": "",
 }
 
 _BOOL_KEYS = {k for k, v in DEFAULTS.items() if isinstance(v, bool)}
@@ -45,6 +48,9 @@ def _coerce(key: str, value):
     if key == "region":
         value = str(value or "auto").strip().lower()
         return value if value in ("auto", *REGIONS) else "auto"
+    if key == "uiTheme":
+        value = str(value or "signal").strip().lower()
+        return value if value in ("signal", "classic", "violet") else "signal"
     if key == "perMap":
         out: dict[str, str] = {}
         if isinstance(value, dict):

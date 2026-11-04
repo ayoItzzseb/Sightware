@@ -35,6 +35,14 @@ POLL_INGAME = 4.0    # same cadence the web dashboard used while playing
 POLL_MENUS = 8.0
 POLL_IDLE = 12.0     # client closed / demo: relax (adaptive = fewer wasted polls)
 
+def _library_names():
+    try:
+        import crosshair_store as store
+        return [p["name"] for p in store.library_list()]
+    except Exception:
+        return []
+
+
 NAV = [("live", "Live Board", "◉"),
        ("performance", "Performance", "▤"),
        ("encounters", "Encounters", "⌖"),
@@ -106,6 +114,7 @@ class ValtixApp(tk.Tk):
         self.after(2500, self._startup_update_check)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.bind("<F5>", lambda e: self.force_refresh())
+        self.bind("<Control-k>", lambda e: (self._command_palette(), "break")[1])
         self.start_poll()
         self._queue_monitor.start()
         last_tab = ""
@@ -152,18 +161,167 @@ class ValtixApp(tk.Tk):
         except Exception:
             pass
 
+    # ── command palette (Ctrl+K) ───────────────────────────────
+    def _command_palette(self) -> None:
+        actions = [("Live Board", lambda: self.show_tab("live")),
+                   ("Performance", lambda: self.show_tab("performance")),
+                   ("Encounters", lambda: self.show_tab("encounters")),
+                   ("Sessions", lambda: self.show_tab("sessions")),
+                   ("Collection", lambda: self.show_tab("inventory")),
+                   ("Crosshair", lambda: self.show_tab("crosshair")),
+                   ("Display", lambda: self.show_tab("display")),
+                   ("Settings", self.open_settings),
+                   ("Refresh now", self.force_refresh),
+                   ("Toggle sidebar", self._toggle_sidebar)]
+        try:
+            for slot in self.core.all_settings().get("crosshairQuickloadHotkeys", []):
+                pass
+        except Exception:
+            pass
+        for preset in [p["name"] for p in _library_names()]:
+            actions.append((f"Load crosshair: {preset}",
+                            lambda n=preset: self._palette_load_crosshair(n)))
+        dlg = tk.Toplevel(self)
+        dlg.title("Command palette")
+        dlg.configure(bg=BG)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.geometry(f"+{self.winfo_rootx() + 260}+{self.winfo_rooty() + 120}")
+        var = tk.StringVar()
+        ent = tk.Entry(dlg, textvariable=var, bg=BG_RAISED, fg=TEXT,
+                       insertbackground=RED, bd=0, font=("Segoe UI", 11))
+        ent.pack(fill="x", padx=14, pady=(14, 8), ipady=7)
+        lb = tk.Listbox(dlg, bg=BG_RAISED, fg=TEXT, bd=0, height=10,
+                        highlightthickness=1, highlightbackground=LINE,
+                        selectbackground=RED, activestyle="none",
+                        font=("Segoe UI", 10))
+        lb.pack(fill="x", padx=14, pady=(0, 14))
+
+        def render(_e=None):
+            q = var.get().casefold()
+            lb.delete(0, "end")
+            for label, _cmd in actions:
+                if q in label.casefold():
+                    lb.insert("end", label)
+            if lb.size():
+                lb.selection_set(0)
+        var.trace_add("write", render)
+
+        def run(_e=None):
+            sel = lb.curselection()
+            if not sel and lb.size():
+                lb.selection_set(0)
+            sel = lb.curselection()
+            if sel:
+                label = lb.get(sel[0])
+                for a_label, a_cmd in actions:
+                    if a_label == label:
+                        dlg.destroy()
+                        a_cmd()
+                        return
+        ent.bind("<Return>", run)
+        lb.bind("<Double-Button-1>", run)
+        ent.bind("<Down>", lambda e: (lb.selection_clear(0, "end"),
+                                      lb.selection_set(min(lb.curselection()[0] + 1,
+                                                           lb.size() - 1)
+                                                       if lb.curselection() else 0),
+                                      "break")[2])
+        ent.bind("<Up>", lambda e: (lb.selection_clear(0, "end"),
+                                    lb.selection_set(max(lb.curselection()[0] - 1, 0)
+                                                     if lb.curselection() else 0),
+                                    "break")[2])
+        ent.bind("<Escape>", lambda e: dlg.destroy())
+        render()
+        ent.focus_set()
+
+    def _palette_load_crosshair(self, name):
+        import crosshair_store as store
+        cfg = store.load_from_library(name)
+        if cfg:
+            self.crosshair_engine.save_crosshair(cfg)
+            self.show_tab("crosshair")
+            self.toast.show(f'Loaded "{name}".', kind="ok")
+
+    # ── custom title bar handlers ──────────────────────────────
+    def _title_drag_start(self, e):
+        self._drag_dx = e.x
+        self._drag_dy = e.y
+
+    def _title_drag(self, e):
+        x = self.winfo_x() + (e.x - self._drag_dx)
+        y = self.winfo_y() + (e.y - self._drag_dy)
+        self.geometry(f"+{x}+{y}")
+
+    def _title_min(self):
+        self.iconify()
+
+    def _title_max(self):
+        try:
+            cur = self.state()
+            if cur == "zoomed":
+                self.state("normal")
+            else:
+                self.state("zoomed")
+        except Exception:
+            pass
+
+    def _title_close(self):
+        self._on_close()
+
     # ── window shell: sidebar + main column ────────────────────
     def _build_body(self) -> None:
         shell = tk.Frame(self, bg=BG)
         shell.pack(fill="both", expand=True)
+
+        # ── custom title bar ────────────────────────────────────
+        tb = tk.Frame(shell, bg=BG_RAISED, height=34)
+        tb.pack(fill="x", side="top")
+        tb.pack_propagate(False)
+        self._titlebar = tb
+        tk.Label(tb, text="V", bg=BG_RAISED, fg=RED,
+                 font=("Segoe UI", 11, "bold")).pack(side="left", padx=(12, 2))
+        self.tb_title = tk.Label(tb, text="Valtix — Local Edition",
+                                 bg=BG_RAISED, fg=TEXT_DIM,
+                                 font=("Segoe UI", 9))
+        self.tb_title.pack(side="left")
+        for glyph, cmd in (("✕", self._title_close),
+                           ("▢", self._title_max),
+                           ("—", self._title_min)):
+            b = tk.Label(tb, text=glyph, bg=BG_RAISED, fg=TEXT_DIM,
+                         font=("Segoe UI", 10), width=4, cursor="hand2")
+            b.pack(side="right")
+            b.bind("<Button-1>", lambda e, c=cmd: c())
+            b.bind("<Enter>", lambda e, l=b: l.configure(fg=TEXT))
+            b.bind("<Leave>", lambda e, l=b: l.configure(fg=TEXT_DIM))
+        # drag / double-click maximise on the whole bar
+        for w in (tb, self.tb_title):
+            w.bind("<Button-1>", self._title_drag_start)
+            w.bind("<B1-Motion>", self._title_drag)
+            w.bind("<Double-Button-1>", lambda e: self._title_max())
+        self._drag_dx = self._drag_dy = 0
 
         # ── sidebar ─────────────────────────────────────────────
         self.sidebar = tk.Frame(shell, bg=BG_RAISED, width=SIDEBAR_W)
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
 
+        collapse_row = tk.Frame(self.sidebar, bg=BG_RAISED)
+        collapse_row.pack(fill="x", pady=(10, 0), padx=8)
+        self._sidebar_collapsed = False
+        self.collapse_btn = tk.Label(collapse_row, text="«", bg=BG_RAISED,
+                                     fg=TEXT_DIM, font=("Segoe UI", 11, "bold"),
+                                     cursor="hand2", padx=6)
+        self.collapse_btn.pack(side="right")
+        self.collapse_btn.bind("<Button-1>",
+                               lambda e: self._toggle_sidebar())
+        try:
+            if self.core.all_settings().get("sidebarCollapsed"):
+                self.after(200, self._toggle_sidebar)
+        except Exception:
+            pass
+
         brand = tk.Frame(self.sidebar, bg=BG_RAISED)
-        brand.pack(fill="x", padx=18, pady=(20, 14))
+        brand.pack(fill="x", padx=18, pady=(8, 14))
         # the real Valtix logo (assets/valtix-brand-256.png)
         try:
             from PIL import Image as _PILImage
@@ -220,6 +378,108 @@ class ValtixApp(tk.Tk):
             # never wider than the visible area (sidebar already subtracted)
             col.place_configure(width=max(720, min(1160, e.width - 28)))
         self.content.bind("<Configure>", _fit_column, add="+")
+
+    def _toggle_sidebar(self) -> None:
+        self._sidebar_collapsed = not self._sidebar_collapsed
+        collapsed = self._sidebar_collapsed
+        self.sidebar.configure(width=64 if collapsed else SIDEBAR_W)
+        for w in self.sidebar.winfo_children():
+            if w is self.collapse_btn.master:
+                continue
+            if w is getattr(self, "_brand_frame", None):
+                continue
+        # hide/show everything except the collapse button row
+        collapse_btn_row = self.collapse_btn.master
+        for w in self.sidebar.winfo_children():
+            if w is collapse_btn_row:
+                continue
+            try:
+                w.pack_forget()
+        # noqa - re-pack below
+            except Exception:
+                pass
+        if not collapsed:
+            # re-pack in original order: brand, section labels, items, footer
+            self._rebuild_sidebar()
+        else:
+            collapse_btn_row.pack_forget()
+            collapse_btn_row.pack(fill="x", pady=(10, 0), padx=8)
+            self.collapse_btn.configure(text="»")
+            # icon-only items
+            for key in NAV_LABELS:
+                item = tk.Label(self.sidebar, text=NAV_ICONS[key],
+                                bg=BG_RAISED, fg=TEXT_DIM,
+                                font=("Segoe UI", 12), width=3,
+                                cursor="hand2", pady=6)
+                item.pack()
+                item.bind("<Button-1>", lambda e, k=key: self.show_tab(k))
+                self._tooltip(item, NAV_LABELS[key])
+        try:
+            self.core.update_settings({"sidebarCollapsed": collapsed})
+        except Exception:
+            pass
+
+    def _rebuild_sidebar(self):
+        for w in self.sidebar.winfo_children():
+            w.destroy()
+        self._nav_items = {}
+        self.collapse_btn = None
+        collapse_row = tk.Frame(self.sidebar, bg=BG_RAISED)
+        collapse_row.pack(fill="x", pady=(10, 0), padx=8)
+        self.collapse_btn = tk.Label(collapse_row, text="«", bg=BG_RAISED,
+                                     fg=TEXT_DIM, font=("Segoe UI", 11, "bold"),
+                                     cursor="hand2", padx=6)
+        self.collapse_btn.pack(side="right")
+        self.collapse_btn.bind("<Button-1>",
+                               lambda e: self._toggle_sidebar())
+        brand = tk.Frame(self.sidebar, bg=BG_RAISED)
+        brand.pack(fill="x", padx=18, pady=(8, 14))
+        try:
+            from PIL import Image as _I
+            from PIL import ImageTk as _IT
+            img = _I.open(self._resource("assets", "valtix-brand-256.png"))
+            self._brand_photo = _IT.PhotoImage(img.resize((34, 34), _I.LANCZOS))
+            tk.Label(brand, image=self._brand_photo, bg=BG_RAISED
+                     ).pack(side="left")
+        except Exception:
+            pass
+        brand_txt = tk.Frame(brand, bg=BG_RAISED)
+        brand_txt.pack(side="left", padx=(10, 0))
+        tk.Label(brand_txt, text="VALTIX", bg=BG_RAISED, fg=TEXT,
+                 font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        tk.Label(brand_txt, text="LOCAL EDITION", bg=BG_RAISED, fg=TEXT_FAINT,
+                 font=("Segoe UI", 7, "bold")).pack(anchor="w")
+        for title, keys in NAV_SECTIONS:
+            tk.Label(self.sidebar, text=title, bg=BG_RAISED, fg=TEXT_FAINT,
+                     font=("Segoe UI", 7, "bold"), anchor="w"
+                     ).pack(fill="x", padx=22, pady=(14, 4))
+            for key in keys:
+                self._make_nav_item(key)
+        foot = tk.Frame(self.sidebar, bg=BG_RAISED)
+        foot.pack(side="bottom", fill="x", padx=16, pady=12)
+        tk.Label(foot, text="100% local — no telemetry.",
+                 bg=BG_RAISED, fg=TEXT_FAINT,
+                 font=("Segoe UI", 8)).pack(fill="x")
+        self._refresh_nav_states()
+
+    def _tooltip(self, widget, text):
+        tip = {"win": None}
+        def enter(_e):
+            if tip["win"]:
+                return
+            x = widget.winfo_rootx() + widget.winfo_width() + 6
+            y = widget.winfo_rooty() + 8
+            tip["win"] = tw = tk.Toplevel(widget)
+            tw.wm_overrideredirect(True)
+            tw.wm_geometry(f"+{x}+{y}")
+            tk.Label(tw, text=text, bg=CARD_HI, fg=TEXT, padx=8, pady=3,
+                     font=("Segoe UI", 8)).pack()
+        def leave(_e):
+            if tip["win"]:
+                tip["win"].destroy()
+                tip["win"] = None
+        widget.bind("<Enter>", enter, add="+")
+        widget.bind("<Leave>", leave, add="+")
 
     def _make_nav_item(self, key: str) -> None:
         label = NAV_LABELS[key]
@@ -357,8 +617,7 @@ class ValtixApp(tk.Tk):
                  fg=TEXT_FAINT, font=("Segoe UI", 8)).pack(side="left")
         tk.Label(footer, text="|", bg=BG_RAISED, fg=LINE,
                  font=("Segoe UI", 8)).pack(side="left", padx=12)
-        det = tk.Label(footer, text="Automatic agent selection removed — "
-                       "details", bg=BG_RAISED, fg=RED_SOFT,
+        det = tk.Label(footer, text="Privacy & policy details", bg=BG_RAISED, fg=RED_SOFT,
                        font=("Segoe UI", 8), cursor="hand2")
         det.pack(side="left")
         det.bind("<Button-1>", lambda e: PrivacyDialog(self))
@@ -629,6 +888,43 @@ class ValtixApp(tk.Tk):
         self._on_close()
 
     # ── shutdown ───────────────────────────────────────────────
+    def _session_recap(self, recap: dict) -> None:
+        """Quit-time recap when a tracked session is running."""
+        dlg = tk.Toplevel(self)
+        dlg.title("Session recap")
+        dlg.configure(bg=BG)
+        dlg.transient(self)
+        dlg.grab_set()
+        tk.Label(dlg, text="SESSION IN PROGRESS", bg=BG, fg=AMBER,
+                 font=("Segoe UI", 9, "bold")).pack(pady=(16, 4))
+        stats = tk.Frame(dlg, bg=BG)
+        stats.pack(padx=20)
+        for i, (k, v) in enumerate((recap.get("stats") or recap).items()
+                                   if isinstance(recap, dict) else []):
+            if not isinstance(v, (int, float, str)):
+                continue
+            tk.Label(stats, text=f"{k}: {v}", bg=BG, fg=TEXT,
+                     font=("Segoe UI", 10)).grid(row=i // 2, column=i % 2,
+                                                 sticky="w", padx=10, pady=3)
+        tk.Label(dlg, text="End this session before quitting, or keep it "
+                 "running in the background?", bg=BG, fg=TEXT_DIM,
+                 font=("Segoe UI", 9)).pack(pady=(10, 12))
+
+        def end_and_quit():
+            try:
+                import session_tracker
+                session_tracker.end()
+            except Exception:
+                pass
+            dlg.destroy()
+            self._on_close()
+        row = tk.Frame(dlg, bg=BG)
+        row.pack(pady=(0, 16))
+        ttk.Button(row, text="End session & quit", style="Accent.TButton",
+                   command=end_and_quit).pack(side="left", padx=4)
+        ttk.Button(row, text="Keep running", style="Ghost.TButton",
+                   command=dlg.destroy).pack(side="left", padx=4)
+
     def _start_crosshair_engine(self) -> None:
         """Boot the crosshair overlay once the main window is up."""
         try:
@@ -639,6 +935,15 @@ class ValtixApp(tk.Tk):
     def _on_close(self) -> None:
         if self._shutting:
             self.destroy()
+            return
+        # active session? show a recap before shutting down
+        try:
+            import session_tracker
+            recap = session_tracker.current_recap()
+        except Exception:
+            recap = None
+        if recap:
+            self._session_recap(recap)
             return
         self._shutting = True
         self._poll_stop.set()

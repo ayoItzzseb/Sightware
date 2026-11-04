@@ -59,8 +59,6 @@ class LiveTab(tk.Frame):
         super().__init__(master, bg=BG)
         self.app = app
         self.core = app.core
-        self._insta_pick: str | None = None
-        self._locking = False
         self._last_board: dict = {}
 
         # page scroll ONLY when content overflows (tables no longer
@@ -567,8 +565,8 @@ class MatchHero(tk.Canvas):
 
 
 class AssistantBanner(tk.Frame):
-    """Agent-Select banner with the manual Insta-Lock button (teal left
-    strip like the web dashboard). Nothing runs by itself."""
+    """Agent-Select banner with the map + pick recommendation (teal left
+    strip like the web dashboard). Purely informational."""
 
     def __init__(self, master, app):
         super().__init__(master, bg=CARD,
@@ -586,33 +584,13 @@ class AssistantBanner(tk.Frame):
                                 justify="left")
         self.sub_lbl.pack(anchor="w", pady=(4, 0))
 
-        actions = tk.Frame(inner, bg=CARD)
-        self.agent_var = tk.StringVar()
-        self.agent_cb = ttk.Combobox(actions, textvariable=self.agent_var,
-                                     state="readonly", width=22,
-                                     values=[a["name"] for a in AGENTS])
-        self.lock_btn = ttk.Button(actions, text="⚡ INSTA-LOCK",
-                                   style="Accent.TButton",
-                                   command=self._lock)
-        self.hover_var = tk.BooleanVar(value=False)
-        self.hover_cb = ttk.Checkbutton(actions, text="hover only (don't lock)",
-                                        variable=self.hover_var)
-        self.hint_lbl = tk.Label(actions, bg=CARD, fg=TEXT_FAINT,
-                                 font=("Segoe UI", 8),
-                                 text="one press = one select + lock · no automation")
-        self.off_hint = tk.Label(actions, bg=CARD, fg=TEXT_DIM,
-                                 font=("Segoe UI", 9),
-                                 text="Lock it in game — or enable the Insta-Lock "
-                                      "button in Settings (off by default; see "
-                                      "the policy notice there).")
-        self._actions = actions
+        self._actions = None
 
     def update_board(self, board: dict) -> None:
         ql = board.get("quickLock") or {}
         asst = board.get("assistant") or {}
         state = board.get("state")
-        show = (state == "PREGAME"
-                and (asst.get("enabled") or ql.get("enabled")))
+        show = state == "PREGAME" and asst.get("enabled")
         if not show:
             self.pack_forget()
             self._visible = False
@@ -632,45 +610,4 @@ class AssistantBanner(tk.Frame):
         if asst.get("preferred") and asst.get("rec") \
                 and asst["preferred"] != asst["rec"]:
             bits.append(f"Recommendation from your stats: {asst['rec']}.")
-        bits.append("Lock it in game — or enable the Insta-Lock button in "
-                    "Settings (off by default; see the policy notice there).")
         self.sub_lbl.configure(text=" ".join(bits))
-
-        if ql.get("enabled"):
-            self._actions.pack(fill="x", pady=(10, 0))
-            self.agent_cb.pack(side="left")
-            self.lock_btn.pack(side="left", padx=(0, 10))
-            self.hover_cb.pack(side="left", padx=(0, 8))
-            self.hint_lbl.pack(side="left", padx=4)
-            default = (self._insta_pick or ql.get("preferred")
-                       or asst.get("preferred") or "")
-            if default and default in self.agent_cb.cget("values"):
-                self.agent_var.set(default)
-        else:
-            self._actions.pack_forget()
-
-    def _lock(self) -> None:
-        if self._locking:
-            return
-        agent = self.agent_var.get()
-        if not agent:
-            self.app.toast.show("Pick an agent first.", kind="warn")
-            return
-        mode = "hover" if self.hover_var.get() else "lock"
-        self._insta_pick = agent
-        self._locking = True
-        self.lock_btn.configure(state="disabled",
-                                text="Hovering…" if mode == "hover"
-                                     else "Locking…")
-
-        def work():
-            return self.app.core.quicklock_lock(agent, mode=mode)
-
-        def done(res):
-            self._locking = False
-            self.lock_btn.configure(state="normal", text="⚡ INSTA-LOCK")
-            self.app.notify(res.get("message", "Done."),
-                            kind="ok" if res.get("ok") else "warn")
-            self.app.force_refresh()
-
-        self.app.run_bg(work, done)

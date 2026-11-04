@@ -93,6 +93,8 @@ class OverlayEngine:
         self.ads_pressed = False
         self.in_whitelist = True
         self.running = False
+        self._last_app = None
+        self._per_app_active = False
 
         self.on_status = None                # fn(status_dict) → UI
         self.on_crosshair_changed = None     # fn(cfg) → UI (external load)
@@ -349,8 +351,40 @@ class OverlayEngine:
     def _whitelist_tick(self) -> None:
         if not self.running or not self.settings.get("whitelistEnabled"):
             return
-        names = {e.get("name", "") for e in self.settings.get("whitelist", []) if e.get("name")}
-        found = foreground_matches(names) if names else True
+        entries = [e for e in self.settings.get("whitelist", []) if e.get("name")]
+        names = {e["name"] for e in entries}
+        # which whitelisted app (if any) is focused right now?
+        active_app = None
+        if names:
+            try:
+                from crosshair_input import foreground_name
+                title = foreground_name()
+            except Exception:
+                title = ""
+            if title:
+                for n in names:
+                    if n.casefold() in title.casefold():
+                        active_app = n
+                        break
+        found = active_app is not None
+
+        # per-app crosshair memory: swap presets when the focused app changes
+        if active_app != self._last_app:
+            self._last_app = active_app
+            per_app = store.get_per_app()
+            wanted = per_app.get(active_app or "", "") if active_app else ""
+            cfg = store.load_from_library(wanted) if wanted else None
+            if cfg is not None:
+                self.crosshair = cfg
+                self._per_app_active = True
+            elif self._per_app_active:
+                # leaving a per-app preset: back to the user's base crosshair
+                self.crosshair = store.get_crosshair()
+                self._per_app_active = False
+            self.resolve_and_render()
+            if self.on_crosshair_changed and cfg is not None:
+                self.on_crosshair_changed(cfg)
+
         if found != self.in_whitelist:
             self.in_whitelist = found
             self.resolve_and_render()

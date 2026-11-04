@@ -23,6 +23,43 @@ LINE      = "#252D3A"   # hairline borders
 LINE_SOFT = "#1B2230"
 
 TEXT      = "#F5F7FA"   # primary text
+
+# ── theme variants (selected in Settings → UI theme; needs restart) ──
+# Tokens are imported by name everywhere, so variants rebind the accent
+# globals at import time based on the saved setting.
+_VARIANTS = {
+    "signal": {},   # orange primary / violet secondary (default)
+    "classic": {"RED": "#FF4655", "RED_DARK": "#B8323E", "RED_SOFT": "#FF8A94",
+                "ORANGE": "#FF9C41", "GRAD_RULE": ["#141F2A", "#FF4655", "#141F2A"]},
+    "violet": {"RED": "#8B5CF6", "RED_DARK": "#5B3FA8", "RED_SOFT": "#C4B1FA",
+               "ORANGE": "#A78BFA",
+               "GRAD_RULE": ["#10141D", "#8B5CF6", "#10141D"]},
+}
+
+
+def _active_variant() -> str:
+    try:
+        data_dir = os.environ.get("VALTIX_DATA_DIR") or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "backend", "data")
+        with open(os.path.join(data_dir, "settings.json"), "r",
+                  encoding="utf-8") as f:
+            v = json.load(f).get("uiTheme", "signal")
+        return v if v in _VARIANTS else "signal"
+    except Exception:
+        return "signal"
+
+
+def _apply_variant_overrides():
+    overrides = _VARIANTS.get(_active_variant())
+    for key, val in overrides.items():
+        globals()[key] = val
+
+
+import os as _os
+import json as _json
+_apply_variant_overrides()
+
+TEXT      = "#F5F7FA"   # primary text
 TEXT_DIM  = "#929CAC"   # secondary text
 TEXT_FAINT= "#5A6475"   # tertiary text
 

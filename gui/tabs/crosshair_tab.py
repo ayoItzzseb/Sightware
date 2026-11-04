@@ -10,14 +10,16 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, ttk
 
+from PIL import Image, ImageTk
+import crosshair_codes as xcodes
 import crosshair_render as render
 import crosshair_store as store
 from ..theme import (AMBER, BG, BG_RAISED, CARD, CARD_HI, LINE, RED, RED_SOFT,
                    TEAL, TEAL_DIM, TEXT, TEXT_DIM, TEXT_FAINT)
 from ..widgets import ScrollFrame, Switch, ValtixSlider, card, section_title
 
-STYLES = [("cross", "CROSS"), ("circle", "CIRCLE"), ("pixels", "PIXEL ART"),
-          ("custom", "IMAGE")]
+STYLES = [("cross", "CROSS"), ("circle", "CIRCLE"), ("arc", "ARC"),
+          ("pixels", "PIXEL ART"), ("custom", "IMAGE")]
 LINE_ARROWS = ["↑", "↓", "←", "→"]
 SLOTS = 4
 
@@ -136,8 +138,12 @@ class CrosshairTab(tk.Frame):
                                     fg=TEXT_FAINT, font=("Segoe UI", 8, "bold"),
                                     padx=10, pady=3)
         self.status_pill.pack(side="left")
+        ttk.Button(top, text="Copy share code", style="Ghost.TButton",
+                   command=self._copy_share_code).pack(side="right")
+        ttk.Button(top, text="Paste crosshair code", style="Accent.TButton",
+                   command=self._import_code).pack(side="right", padx=(0, 6))
         ttk.Button(top, text="Open data folder", style="Ghost.TButton",
-                   command=self._open_data_folder).pack(side="right")
+                   command=self._open_data_folder).pack(side="right", padx=(0, 6))
         self.enabled_switch = Switch(top, on=self.engine.settings.get("enabled", True),
                                      command=self._toggle_enabled)
         self.enabled_switch.pack(side="right", padx=(0, 10))
@@ -291,6 +297,16 @@ class CrosshairTab(tk.Frame):
         self._sw_pixels.pack(side="left")
         ttk.Button(px_row, text="Open pixel editor", style="TButton",
                    command=self._open_pixel_editor).pack(side="left", padx=8)
+        pxrow2 = tk.Frame(f, bg=CARD)
+        pxrow2.pack(fill="x", pady=3)
+        tk.Label(pxrow2, text="Canvas", bg=CARD, fg=TEXT_DIM,
+                 font=("Segoe UI", 9), width=12, anchor="w").pack(side="left")
+        self.px_size_cb = ttk.Combobox(pxrow2, state="readonly", width=6,
+                                       values=["32", "48", "64"])
+        self.px_size_cb.set(str(int(self._get_px("size", 32) or 32)))
+        self.px_size_cb.pack(side="left")
+        self.px_size_cb.bind("<<ComboboxSelected>>",
+                             lambda e: self._set_px("size", int(self.px_size_cb.get())))
 
         # image section
         section_title(f, "image crosshair", bg=CARD).pack(anchor="w", pady=(8, 0))
@@ -343,6 +359,33 @@ class CrosshairTab(tk.Frame):
         self.preview.pack(fill="both", expand=True, pady=(6, 0))
         self.preview.bind("<Configure>", lambda e: self._draw_preview())
         self._preview_images: list = []
+        self._preview_bg_photo = None
+        bgbar = tk.Frame(f, bg=CARD)
+        bgbar.pack(fill="x", pady=(6, 0))
+        ttk.Button(bgbar, text="Preview background…", style="Ghost.TButton",
+                   command=self._pick_preview_bg).pack(side="left")
+        ttk.Button(bgbar, text="Clear background", style="Ghost.TButton",
+                   command=self._clear_preview_bg).pack(side="left", padx=6)
+
+    def _pick_preview_bg(self):
+        src = filedialog.askopenfilename(
+            title="Pick a background image",
+            filetypes=[("Images", "*.png *.jpg *.jpeg")])
+        if not src:
+            return
+        try:
+            from PIL import Image, ImageTk
+            img = Image.open(src).convert("RGB")
+            self._preview_bg_src = img
+            self._draw_preview()
+        except Exception as exc:
+            toast_msg = f"Could not load image: {exc}"
+            self.app.toast.show(toast_msg, kind="error")
+
+    def _clear_preview_bg(self):
+        self._preview_bg_src = None
+        self._preview_bg_photo = None
+        self._draw_preview()
 
     def _draw_preview(self):
         cv = self.preview
@@ -352,13 +395,22 @@ class CrosshairTab(tk.Frame):
         self._preview_images.clear()
         w = cv.winfo_width() or 400
         h = cv.winfo_height() or 230
-        # checkerboard in theme shades
-        step = 26
-        for y in range(0, h, step):
-            for x in range(0, w, step):
-                if (x // step + y // step) % 2 == 0:
-                    cv.create_rectangle(x, y, x + step, y + step,
-                                        fill="#1A2634", width=0)
+        if getattr(self, "_preview_bg_src", None):
+            try:
+                img = self._preview_bg_src.copy()
+                img.thumbnail((w, h))
+                self._preview_bg_photo = ImageTk.PhotoImage(img)
+                cv.create_image(w / 2, h / 2, image=self._preview_bg_photo)
+            except Exception:
+                pass
+        else:
+            # checkerboard in theme shades
+            step = 26
+            for y in range(0, h, step):
+                for x in range(0, w, step):
+                    if (x // step + y // step) % 2 == 0:
+                        cv.create_rectangle(x, y, x + step, y + step,
+                                            fill="#1A2634", width=0)
         cfg = self._working()
         cv.create_rectangle(0, 0, w, h, outline=LINE)
         if cfg["crosshair"]["style"] == "pixels" and not cfg["pixels"]["data"]:
@@ -393,6 +445,10 @@ class CrosshairTab(tk.Frame):
                    command=self._save_library).pack(side="left")
         ttk.Button(bar, text="Import PNGs", style="Ghost.TButton",
                    command=self._import_png).pack(side="left", padx=6)
+        ttk.Button(bar, text="Export pack…", style="Ghost.TButton",
+                   command=self._export_pack).pack(side="left", padx=6)
+        ttk.Button(bar, text="Import pack…", style="Ghost.TButton",
+                   command=self._import_pack).pack(side="left")
         self.lib_frame = ScrollFrame(parent, bg=BG)
         self.lib_frame.configure(height=190)
         self.lib_frame.pack_propagate(False)
@@ -626,7 +682,74 @@ class CrosshairTab(tk.Frame):
                                     activestyle="none",
                                     font=("Segoe UI", 9))
         self._wl_value.pack(fill="x", pady=(6, 0))
+        self.wl_per_app = tk.Frame(f, bg=CARD)
+        self.wl_per_app.pack(fill="x", pady=(2, 0))
         self._refresh_whitelist()
+
+    # ── share codes / packs ────────────────────────────────────
+    def _import_code(self):
+        dlg = tk.Toplevel(self)
+        dlg.title("Import VALORANT crosshair code")
+        dlg.configure(bg=BG)
+        dlg.transient(self.winfo_toplevel())
+        dlg.grab_set()
+        tk.Label(dlg, text="Paste a crosshair code (0;P;c;5;o;1;...)",
+                 bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")
+                 ).pack(padx=16, pady=(14, 6))
+        var = tk.StringVar()
+        ent = ttk.Entry(dlg, textvariable=var, width=52)
+        ent.pack(padx=16, pady=(0, 4))
+        msg = tk.Label(dlg, text="", bg=BG, fg=TEXT_DIM, font=("Segoe UI", 8))
+        msg.pack(anchor="w", padx=16)
+
+        def ok(_e=None):
+            cfg = xcodes.decode(var.get())
+            if not cfg:
+                msg.configure(text="That does not look like a crosshair code.",
+                              fg=RED_SOFT)
+                return
+            self._load_into_ui(cfg)
+            self.engine.set_crosshair_runtime(cfg)
+            dlg.destroy()
+            self.app.toast.show("Crosshair imported from code — tune and Apply.",
+                                kind="ok")
+        ent.bind("<Return>", ok)
+        ttk.Button(dlg, text="Import", style="Accent.TButton",
+                   command=ok).pack(pady=(6, 14))
+        ent.focus_set()
+
+    def _copy_share_code(self):
+        self._sync_from_ui()
+        code = xcodes.encode(self._working())
+        if not code:
+            self.app.toast.show("Share codes need a Cross, Circle or Arc style.",
+                                kind="error")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(code)
+        self.app.toast.show("Share code copied to clipboard.", kind="ok")
+
+    def _export_pack(self):
+        dest = filedialog.asksaveasfilename(
+            title="Export crosshair pack", defaultextension=".zip",
+            filetypes=[("Crosshair pack", "*.zip")])
+        if not dest:
+            return
+        r = store.export_pack(dest)
+        self.app.toast.show(f"Pack saved: {r['presets']} presets, "
+                            f"{r['images']} images.", kind="ok")
+
+    def _import_pack(self):
+        src = filedialog.askopenfilename(title="Import crosshair pack",
+                                         filetypes=[("Crosshair pack", "*.zip")])
+        if not src:
+            return
+        r = store.import_pack(src)
+        self.app.toast.show(f"Pack imported: {r['presets']} presets, "
+                            f"{r['images']} images"
+                            + (f", {r['skipped']} skipped" if r["skipped"] else ""),
+                            kind="ok")
+        self._refresh_library()
 
     # ── state helpers ──────────────────────────────────────────
     def _working(self) -> dict:
@@ -720,6 +843,10 @@ class CrosshairTab(tk.Frame):
         for k, b in self._style_buttons.items():
             b.configure(bg=RED if k == style else BG_RAISED,
                         fg="#FFFFFF" if k == style else TEXT_DIM)
+        # sweep row only matters for the arc style
+        if "arc-sweep" in getattr(self, "_sliders", {}):
+            row_of_arc = self._sliders["arc-sweep"].master
+            row_of_arc.pack(fill="x") if style == "arc" else row_of_arc.pack_forget()
         for i, b in enumerate(self._line_btns):
             on = c.get("lines", [True] * 4)[i]
             b.configure(bg=RED if on else BG_RAISED, fg="#FFFFFF" if on else TEXT_DIM)
@@ -829,7 +956,8 @@ class CrosshairTab(tk.Frame):
         PixelEditorDialog(self, self._get_px("data", ""),
                           self._sw_pixels.cget("bg") or "#FFFFFF",
                           on_save=lambda b64: (self._set_px("data", b64),
-                                               self._draw_preview()))
+                                               self._draw_preview()),
+                          size=int(self._get_px("size", 32) or 32))
 
     # ── bindings / settings plumbing ───────────────────────────
     def _bind_button(self, parent, value, target):
@@ -922,10 +1050,40 @@ class CrosshairTab(tk.Frame):
             self.engine.save_settings(self.engine.settings)
             self._refresh_whitelist()
 
+    def _save_per_app(self, app_name, preset):
+        mapping = store.get_per_app()
+        if preset:
+            mapping[app_name] = preset
+        else:
+            mapping.pop(app_name, None)
+        store.set_per_app(mapping)
+
     def _refresh_whitelist(self):
         self._wl_value.delete(0, "end")
+        per_app = store.get_per_app()
+        names = [p["name"] for p in store.library_list()] + \
+                [p["name"] for p in store.custom_list()]
         for e in self.engine.settings.get("whitelist", []):
             self._wl_value.insert("end", e.get("name", "?"))
+        # per-app crosshair memory rows
+        for w in self.wl_per_app.winfo_children():
+            w.destroy()
+        if self.engine.settings.get("whitelistEnabled"):
+            tk.Label(self.wl_per_app, text="Crosshair per app:", bg=CARD,
+                     fg=TEXT_FAINT, font=("Segoe UI", 8)).pack(anchor="w")
+            for e in self.engine.settings.get("whitelist", []):
+                row = tk.Frame(self.wl_per_app, bg=CARD)
+                row.pack(fill="x", pady=1)
+                cb = ttk.Combobox(row, state="readonly", width=16,
+                                  values=["— default —"] + names)
+                cb.set(per_app.get(e.get("name", ""), "") or "— default —")
+                cb.pack(side="left")
+                cb.bind("<<ComboboxSelected>>",
+                        lambda _e, n=e.get("name", ""), c=cb:
+                        self._save_per_app(n, "" if c.get().startswith("—")
+                                           else c.get()))
+                tk.Label(row, text=e.get("name", "?"), bg=CARD, fg=TEXT_DIM,
+                         font=("Segoe UI", 8)).pack(side="left", padx=6)
 
     # ── misc ───────────────────────────────────────────────────
     def _ask_name(self, title, initial) -> str | None:
@@ -991,9 +1149,9 @@ class CrosshairTab(tk.Frame):
 # ── pixel editor dialog ────────────────────────────────────────
 
 class PixelEditorDialog(tk.Toplevel):
-    SIZE = render.PIXEL_SIZE
+    SIZES = (32, 48, 64)
 
-    def __init__(self, master, data_b64, color, on_save):
+    def __init__(self, master, data_b64, color, on_save, size=32):
         super().__init__(master)
         self.title("Pixel editor")
         self.configure(bg=BG)
@@ -1003,40 +1161,80 @@ class PixelEditorDialog(tk.Toplevel):
         self.on_save = on_save
         self.color = color[:7] if color else "#FFFFFF"
         self.tool = "pencil"
+        self.mirror_x = False
+        self.mirror_y = False
+        self._undo = []
+        self._redo = []
+        self._palette = self._load_palette()
+        self.SIZE = size
         self.grid = [[None] * self.SIZE for _ in range(self.SIZE)]
         self._load_existing(data_b64)
 
         head = tk.Frame(self, bg=BG)
         head.pack(fill="x", padx=14, pady=(12, 4))
-        tk.Label(head, text="PIXEL EDITOR — 32×32", bg=BG, fg=TEXT,
-                 font=("Segoe UI", 10, "bold")).pack(side="left")
+        tk.Label(head, text=f"PIXEL EDITOR - {self.SIZE}x{self.SIZE}", bg=BG,
+                 fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left")
         tools = tk.Frame(head, bg=BG)
         tools.pack(side="right")
-        self.pencil_btn = tk.Label(tools, text="✏ PENCIL", bg=RED, fg="#FFFFFF",
+        self.pencil_btn = tk.Label(tools, text="PENCIL", bg=RED, fg="#FFFFFF",
                                    font=("Segoe UI", 8, "bold"), padx=8, pady=4,
                                    cursor="hand2")
         self.pencil_btn.pack(side="left", padx=2)
-        self.eraser_btn = tk.Label(tools, text="🧽 ERASER", bg=BG_RAISED, fg=TEXT_DIM,
+        self.eraser_btn = tk.Label(tools, text="ERASER", bg=BG_RAISED, fg=TEXT_DIM,
                                    font=("Segoe UI", 8, "bold"), padx=8, pady=4,
                                    cursor="hand2")
         self.eraser_btn.pack(side="left", padx=2)
         self.pencil_btn.bind("<Button-1>", lambda e: self._set_tool("pencil"))
         self.eraser_btn.bind("<Button-1>", lambda e: self._set_tool("eraser"))
 
+        row2 = tk.Frame(self, bg=BG)
+        row2.pack(fill="x", padx=14, pady=(0, 2))
+        tk.Label(row2, text="Canvas", bg=BG, fg=TEXT_DIM,
+                 font=("Segoe UI", 8)).pack(side="left")
+        self.size_cb = ttk.Combobox(row2, state="readonly", width=5,
+                                    values=[str(x) for x in self.SIZES])
+        self.size_cb.set(str(self.SIZE))
+        self.size_cb.pack(side="left", padx=(4, 10))
+        self.size_cb.bind("<<ComboboxSelected>>", self._change_size)
+        self.mx_btn = tk.Label(row2, text="MIRROR X", bg=BG_RAISED, fg=TEXT_DIM,
+                               font=("Segoe UI", 8, "bold"), padx=6, pady=3,
+                               cursor="hand2")
+        self.mx_btn.pack(side="left", padx=2)
+        self.mx_btn.bind("<Button-1>", lambda e: self._toggle_mirror("x"))
+        self.my_btn = tk.Label(row2, text="MIRROR Y", bg=BG_RAISED, fg=TEXT_DIM,
+                               font=("Segoe UI", 8, "bold"), padx=6, pady=3,
+                               cursor="hand2")
+        self.my_btn.pack(side="left", padx=2)
+        self.my_btn.bind("<Button-1>", lambda e: self._toggle_mirror("y"))
+        self.undo_btn = tk.Label(row2, text="UNDO", bg=BG_RAISED, fg=TEXT_DIM,
+                                 font=("Segoe UI", 8, "bold"), padx=6, pady=3,
+                                 cursor="hand2")
+        self.undo_btn.pack(side="left", padx=2)
+        self.undo_btn.bind("<Button-1>", lambda e: self._undo_pop())
+        self.redo_btn = tk.Label(row2, text="REDO", bg=BG_RAISED, fg=TEXT_DIM,
+                                 font=("Segoe UI", 8, "bold"), padx=6, pady=3,
+                                 cursor="hand2")
+        self.redo_btn.pack(side="left", padx=2)
+        self.redo_btn.bind("<Button-1>", lambda e: self._redo_pop())
+
         body = tk.Frame(self, bg=BG)
         body.pack(padx=14, pady=6)
-        cell = 14
-        self.canvas = tk.Canvas(body, width=self.SIZE * cell, height=self.SIZE * cell,
+        self.cell = max(320 // self.SIZE, 5)
+        self.canvas = tk.Canvas(body, width=self.SIZE * self.cell,
+                                height=self.SIZE * self.cell,
                                 bg=CARD_HI, highlightthickness=1,
                                 highlightbackground=LINE, bd=0)
         self.canvas.pack()
-        self.cell = cell
         self._drawing = False
         self.canvas.bind("<Button-1>", self._press)
         self.canvas.bind("<B1-Motion>", self._drag)
-        self.canvas.bind("<ButtonRelease-1>", lambda e: setattr(self, "_drawing", False))
+        self.canvas.bind("<ButtonRelease-1>",
+                         lambda e: setattr(self, "_drawing", False))
         self.canvas.bind("<Button-3>", lambda e: self._paint(e, erase=True))
+        self.bind("<Control-z>", lambda e: self._undo_pop())
+        self.bind("<Control-y>", lambda e: self._redo_pop())
         self._draw_grid()
+        self._draw_palette()
 
         btns = tk.Frame(self, bg=BG)
         btns.pack(fill="x", padx=14, pady=(4, 12))
@@ -1046,6 +1244,105 @@ class PixelEditorDialog(tk.Toplevel):
                    command=self.destroy).pack(side="right", padx=4)
         ttk.Button(btns, text="Use this pixel crosshair", style="Accent.TButton",
                    command=self._save).pack(side="right")
+
+    # palette (persisted per install)
+    def _palette_path(self):
+        import crosshair_store as _store
+        import os
+        return os.path.join(_store._DATA_DIR, "crosshair", "pixel-palette.json")
+
+    def _load_palette(self):
+        import json
+        try:
+            with open(self._palette_path(), "r", encoding="utf-8") as f:
+                return json.load(f)[:14]
+        except Exception:
+            return ["#00FF66", "#FF4655", "#35E2E2", "#FFFFFF", "#000000"]
+
+    def _save_palette(self):
+        import json
+        try:
+            with open(self._palette_path(), "w", encoding="utf-8") as f:
+                json.dump(self._palette, f)
+        except Exception:
+            pass
+
+    def _draw_palette(self):
+        if hasattr(self, "_pal_frame") and self._pal_frame.winfo_exists():
+            self._pal_frame.destroy()
+        self._pal_frame = tk.Frame(self, bg=BG)
+        self._pal_frame.pack(fill="x", padx=14, pady=(0, 4))
+        tk.Label(self._pal_frame, text="Palette:", bg=BG, fg=TEXT_FAINT,
+                 font=("Segoe UI", 8)).pack(side="left")
+        for col in self._palette:
+            sw = tk.Label(self._pal_frame, text="", bg=col, width=3,
+                          cursor="hand2", highlightbackground=LINE,
+                          highlightthickness=1)
+            sw.pack(side="left", padx=2)
+            sw.bind("<Button-1>", lambda e, c=col: self._pick_color(c))
+
+    def _pick_color(self, col):
+        self.color = col
+
+    def _remember_color(self, col):
+        col = col[:7]
+        if col in self._palette:
+            return
+        self._palette.insert(0, col)
+        self._palette = self._palette[:14]
+        self._save_palette()
+        self._draw_palette()
+
+    # undo / redo
+    def _snapshot(self):
+        return [row[:] for row in self.grid]
+
+    def _push_undo(self):
+        self._undo.append(self._snapshot())
+        self._redo.clear()
+
+    def _undo_pop(self):
+        if not self._undo:
+            return
+        self._redo.append(self._snapshot())
+        self.grid = self._undo.pop()
+        self._draw_grid()
+
+    def _redo_pop(self):
+        if not self._redo:
+            return
+        self._undo.append(self._snapshot())
+        self.grid = self._redo.pop()
+        self._draw_grid()
+
+    def _toggle_mirror(self, axis):
+        if axis == "x":
+            self.mirror_x = not self.mirror_x
+            self.mx_btn.configure(bg=RED if self.mirror_x else BG_RAISED,
+                                  fg="#FFFFFF" if self.mirror_x else TEXT_DIM)
+        else:
+            self.mirror_y = not self.mirror_y
+            self.my_btn.configure(bg=RED if self.mirror_y else BG_RAISED,
+                                  fg="#FFFFFF" if self.mirror_y else TEXT_DIM)
+
+    def _change_size(self, _e=None):
+        new_size = int(self.size_cb.get())
+        if new_size == self.SIZE:
+            return
+        old = self.grid
+        old_size = self.SIZE
+        self.SIZE = new_size
+        self.grid = [[None] * new_size for _ in range(new_size)]
+        sx = new_size / old_size
+        for y in range(new_size):
+            for x in range(new_size):
+                ox = min(int(x / sx), old_size - 1)
+                oy = min(int(y / sx), old_size - 1)
+                self.grid[y][x] = old[oy][ox]
+        self.cell = max(320 // new_size, 5)
+        self.canvas.configure(width=self.SIZE * self.cell,
+                              height=self.SIZE * self.cell)
+        self._draw_grid()
 
     def _load_existing(self, data_b64):
         if not data_b64:
@@ -1080,23 +1377,37 @@ class PixelEditorDialog(tk.Toplevel):
             for x in range(self.SIZE):
                 px = self.grid[y][x]
                 if px:
-                    color = f"#{px[0]:02X}{px[1]:02X}{px[2]:02X}"
-                    cv.create_rectangle(x * cell, y * cell, (x + 1) * cell, (y + 1) * cell,
+                    color = "#%02X%02X%02X" % (px[0], px[1], px[2])
+                    cv.create_rectangle(x * cell, y * cell,
+                                        (x + 1) * cell, (y + 1) * cell,
                                         fill=color, width=0)
         for i in range(self.SIZE + 1):
-            cv.create_line(i * cell, 0, i * cell, self.SIZE * cell, fill="#202D3A")
-            cv.create_line(0, i * cell, self.SIZE * cell, i * cell, fill="#202D3A")
+            cv.create_line(i * cell, 0, i * cell, self.SIZE * cell,
+                           fill="#202D3A")
+            cv.create_line(0, i * cell, self.SIZE * cell, i * cell,
+                           fill="#202D3A")
 
     def _paint(self, evt, erase=False):
         x = int(evt.x // self.cell)
         y = int(evt.y // self.cell)
         if not (0 <= x < self.SIZE and 0 <= y < self.SIZE):
             return
-        if erase or self.tool == "eraser":
-            self.grid[y][x] = None
-        else:
-            h = self.color.lstrip("#")
-            self.grid[y][x] = (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255)
+        self._push_undo()
+        targets = [(x, y)]
+        if self.mirror_x:
+            targets.append((self.SIZE - 1 - x, y))
+        if self.mirror_y:
+            targets.append((x, self.SIZE - 1 - y))
+        if self.mirror_x and self.mirror_y:
+            targets.append((self.SIZE - 1 - x, self.SIZE - 1 - y))
+        for tx, ty in targets:
+            if erase or self.tool == "eraser":
+                self.grid[ty][tx] = None
+            else:
+                h = self.color.lstrip("#")
+                self.grid[ty][tx] = (int(h[0:2], 16), int(h[2:4], 16),
+                                     int(h[4:6], 16), 255)
+                self._remember_color(self.color)
         self._draw_grid()
 
     def _press(self, evt):
@@ -1108,6 +1419,7 @@ class PixelEditorDialog(tk.Toplevel):
             self._paint(evt)
 
     def _clear(self):
+        self._push_undo()
         self.grid = [[None] * self.SIZE for _ in range(self.SIZE)]
         self._draw_grid()
 

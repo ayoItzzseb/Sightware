@@ -221,13 +221,16 @@ def _window_title(hwnd) -> str:
     return buf.value
 
 
+def foreground_name() -> str:
+    """Cached window title of the foreground window (no process access)."""
+    hwnd = _user32.GetForegroundWindow()
+    return _window_title(hwnd) if hwnd else ""
+
+
 def foreground_matches(names: set[str]) -> bool:
     """True when the foreground window title matches one of the whitelist
     names. Reads only cached window properties — never opens a process."""
-    hwnd = _user32.GetForegroundWindow()
-    if not hwnd:
-        return False
-    title = _window_title(hwnd)
+    title = foreground_name()
     if not title:
         return False
     t = title.casefold()

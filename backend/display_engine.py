@@ -359,6 +359,7 @@ class MagnifierSaturation:
         self.initialized = True
         self.active = False
         self.percent = 100
+        self.warmth = 0
         self.applied_matrix = None
         self.original = MAGCOLOREFFECT()
         if not self.dll.MagGetFullscreenColorEffect(ctypes.byref(self.original)):
@@ -403,12 +404,48 @@ class MagnifierSaturation:
         if not self._matches(current.transform, expected):
             raise OSError("Another color tool changed the Windows desktop effect. Valtix stopped live updates and left that effect untouched.")
         percent = max(0, min(300, int(percent)))
-        matrix = self._matrix(percent)
-        self._set(matrix)
-        self.active = True
         self.percent = percent
+        matrix = self._combined()
+        self._set(matrix)
+        self.active = not self._is_identity(matrix)
         self.applied_matrix = matrix
         return percent
+
+    @staticmethod
+    def _is_identity(matrix):
+        return MagnifierSaturation._matches(matrix, MagnifierSaturation.IDENTITY)
+
+    def set_warmth(self, pct):
+        """0 = neutral, 100 = warm (redder), -100..0 cool (bluer)."""
+        self.warmth = max(-100, min(100, int(pct)))
+        self.percent = self.percent or 100
+        matrix = self._combined()
+        self._set(matrix)
+        self.active = not self._is_identity(matrix)
+        self.applied_matrix = matrix
+        return self.warmth
+
+    def _combined(self):
+        """Saturation and warmth matrices composed (row-vector convention)."""
+        warm = self.warmth
+        if not warm:
+            return self._matrix(self.percent)
+        t = warm / 100.0
+        warm_m = (1.0 + 0.15 * t, 0.0, 0.0, 0.0, 0.0,
+                  0.0, 1.0 + 0.05 * t, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 1.0 - 0.2 * t, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 1.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0, 1.0)
+        sat = self._matrix(self.percent)
+        # row-vector compose: out = sat_row * warm_m (5x5, last row/col affine)
+        out = []
+        for r in range(5):
+            for cIdx in range(5):
+                acc = 0.0
+                for k in range(5):
+                    acc += sat[r * 5 + k] * warm_m[k * 5 + cIdx]
+                out.append(acc)
+        return tuple(out)
 
     def restore(self):
         if self.active:
@@ -420,6 +457,7 @@ class MagnifierSaturation:
             self._set(self.original.transform)
             self.active = False
             self.percent = 100
+            self.warmth = 0
             self.applied_matrix = None
 
     def shutdown(self):
