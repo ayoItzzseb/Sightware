@@ -431,9 +431,11 @@ class MagnifierSaturation:
         if not warm:
             return self._matrix(self.percent)
         t = warm / 100.0
+        # MAGCOLOREFFECT channels are Red, Blue, Green (R-B-G) — warm raises
+        # red, lowers blue, green nearly unchanged.
         warm_m = (1.0 + 0.15 * t, 0.0, 0.0, 0.0, 0.0,
-                  0.0, 1.0 + 0.05 * t, 0.0, 0.0, 0.0,
-                  0.0, 0.0, 1.0 - 0.2 * t, 0.0, 0.0,
+                  0.0, 1.0 - 0.25 * t, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 1.0 + 0.03 * t, 0.0, 0.0,
                   0.0, 0.0, 0.0, 1.0, 0.0,
                   0.0, 0.0, 0.0, 0.0, 1.0)
         sat = self._matrix(self.percent)

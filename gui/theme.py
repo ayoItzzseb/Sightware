@@ -39,11 +39,11 @@ _VARIANTS = {
 
 def _active_variant() -> str:
     try:
-        data_dir = os.environ.get("VALTIX_DATA_DIR") or os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "backend", "data")
-        with open(os.path.join(data_dir, "settings.json"), "r",
+        data_dir = _os.environ.get("VALTIX_DATA_DIR") or _os.path.join(
+            _os.path.dirname(_os.path.abspath(__file__)), "..", "backend", "data")
+        with open(_os.path.join(data_dir, "settings.json"), "r",
                   encoding="utf-8") as f:
-            v = json.load(f).get("uiTheme", "signal")
+            v = _json.load(f).get("uiTheme", "signal")
         return v if v in _VARIANTS else "signal"
     except Exception:
         return "signal"
@@ -57,7 +57,6 @@ def _apply_variant_overrides():
 
 import os as _os
 import json as _json
-_apply_variant_overrides()
 
 TEXT      = "#F5F7FA"   # primary text
 TEXT_DIM  = "#929CAC"   # secondary text
@@ -78,6 +77,8 @@ BLUE      = "#5AA7E8"
 WIN      = "#35C98A"
 LOSS     = "#F05C67"
 DRAW     = "#929CAC"
+
+_apply_variant_overrides()   # rebind accents per the saved uiTheme
 
 FAMILY_MAIN = "Segoe UI"
 FAMILY_MONO = "Consolas"

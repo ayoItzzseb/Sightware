@@ -80,24 +80,44 @@ def decode(code: str) -> dict | None:
     if 0 <= idx < len(COLORS):
         c["tint"] = COLORS[idx] + "FF"
 
-    # inner lines (Valtix's cross lines)
-    c["thickness"] = max(num("0t", 2), 0.1)
-    c["length"] = max(num("0l", 4), 0)
-    c["gap"] = max(num("0o", 2), 0)
-    inner_alpha = int(max(num("0a", 1), 0) * 255)
-    r, g, b = _hex8_rgb(c["tint"])
-    c["tint"] = _rgba_to_hex8(r, g, b, inner_alpha)
+    # Valtix has one ring of lines; VALORANT has inner (0*) AND outer (1*).
+    # Prefer the inner set when it is visible, otherwise fall back to the
+    # outer set — many real codes are outer-line-only.
+    inner_alpha = max(num("0a", 1), 0)
+    inner_len = num("0l", 0)
+    outer_alpha = max(num("1a", 0), 0)
+    outer_len = num("1l", 0)
+
+    if inner_alpha > 0 and inner_len > 0:
+        src = ("0t", "0l", "0o", inner_alpha)
+    elif outer_alpha > 0 and outer_len > 0:
+        src = ("1t", "1l", "1o", outer_alpha)
+    else:
+        src = None
+
+    if src is not None:
+        kt, kl, ko, ka = src
+        c["thickness"] = max(num(kt, 2), 0.1)
+        c["length"] = max(num(kl, 4), 0)
+        c["gap"] = max(num(ko, 2), 0)
+        r, g, b = _hex8_rgb(c["tint"])
+        c["tint"] = _rgba_to_hex8(r, g, b, int(ka * 255))
+        c["lines"] = [True, True, True, True]
+    else:
+        c["lines"] = [False, False, False, False]
 
     # outlines: o is outline opacity (0-1)
     o = max(num("o", 0), 0)
     c["outline"]["thickness"] = 2 if o > 0 else 0
     c["outline"]["tint"] = "#000000FF" if o > 0 else "#00000000"
 
-    # center dot
-    if num("d", 0) >= 0.5:
-        c["dot"]["size"] = max(num("z", 3), 1)
-        da = _rgba_to_hex8(*_hex8_rgb(c["tint"]), 255)
-        c["dot"]["tint"] = da
+    # center dot: d is dot opacity (0-1), z is dot size
+    d_op = num("d", 0)
+    z = num("z", 0)
+    if d_op > 0 and z > 0:
+        c["dot"]["size"] = max(z, 1)
+        c["dot"]["tint"] = _rgba_to_hex8(*_hex8_rgb(c["tint"]),
+                                         int(d_op * 255))
     else:
         c["dot"]["size"] = 0
     return cfg
