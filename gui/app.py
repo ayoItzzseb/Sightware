@@ -301,13 +301,22 @@ class SightwareApp(tk.Tk):
 
     # ── custom title bar handlers ──────────────────────────────
     def _title_drag_start(self, e):
-        self._drag_dx = e.x
-        self._drag_dy = e.y
-
-    def _title_drag(self, e):
-        x = self.winfo_x() + (e.x - self._drag_dx)
-        y = self.winfo_y() + (e.y - self._drag_dy)
-        self.geometry(f"+{x}+{y}")
+        """Hand the drag to Windows' native move loop (SC_MOVE + HTCAPTION).
+        Moving via geometry() on B1-Motion storms the event loop and renders
+        as black boxes on a borderless window — the native loop is what every
+        custom-titlebar app uses and it is perfectly smooth."""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+            ctypes.windll.user32.ReleaseCapture()
+            WM_SYSCOMMAND = 0x0112
+            SC_MOVE_HTCLIENT = 0xF012
+            ctypes.windll.user32.SendMessageW(hwnd, WM_SYSCOMMAND,
+                                              SC_MOVE_HTCLIENT, 0)
+        except Exception:
+            pass
 
     def _title_min(self):
         self.iconify()
@@ -364,12 +373,10 @@ class SightwareApp(tk.Tk):
             b.bind("<Button-1>", lambda e, c=cmd: c())
             b.bind("<Enter>", lambda e, l=b: l.configure(fg=TEXT))
             b.bind("<Leave>", lambda e, l=b: l.configure(fg=TEXT_DIM))
-        # drag / double-click maximise on the whole bar
+        # native drag / double-click maximise on the whole bar
         for w in (tb, self.tb_title):
             w.bind("<Button-1>", self._title_drag_start)
-            w.bind("<B1-Motion>", self._title_drag)
             w.bind("<Double-Button-1>", lambda e: self._title_max())
-        self._drag_dx = self._drag_dy = 0
 
         # ── sidebar ─────────────────────────────────────────────
         self.sidebar = tk.Frame(shell, bg=BG_RAISED, width=SIDEBAR_W)
