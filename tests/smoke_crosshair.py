@@ -99,9 +99,11 @@ def main() -> int:
     # style switch round-trip
     tab._set_style("circle")
     check("style switch", tab._working()["crosshair"]["style"] == "circle")
+    before = bool(tab._working()["crosshair"]["lines"][0])
     tab._toggle_line(0)
-    check("line toggle", tab._working()["crosshair"]["lines"][0] is False)
+    check("line toggle flips", tab._working()["crosshair"]["lines"][0] is not before)
     tab._toggle_line(0)
+    check("line toggle flips back", tab._working()["crosshair"]["lines"][0] is before)
     tab._set_style("cross")
     pump(0.3)
 

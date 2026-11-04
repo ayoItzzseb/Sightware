@@ -703,16 +703,14 @@ class CrosshairTab(tk.Frame):
         msg.pack(anchor="w", padx=16)
 
         def ok(_e=None):
-            cfg = xcodes.decode(var.get())
+            cfg, info = xcodes.decode_with_info(var.get())
             if not cfg:
-                msg.configure(text="That does not look like a crosshair code.",
-                              fg=RED_SOFT)
+                msg.configure(text=info, fg=RED_SOFT)
                 return
             self._load_into_ui(cfg)
             self.engine.set_crosshair_runtime(cfg)
             dlg.destroy()
-            self.app.toast.show("Crosshair imported from code — tune and Apply.",
-                                kind="ok")
+            self.app.toast.show(f"Imported — {info}", kind="ok")
         ent.bind("<Return>", ok)
         ttk.Button(dlg, text="Import", style="Accent.TButton",
                    command=ok).pack(pady=(6, 14))

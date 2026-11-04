@@ -63,7 +63,7 @@ SIDEBAR_W = 208
 class ValtixApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Valtix — Redesign Prototype")
+        self.title("Valtix — Local Edition")
         self.configure(background=BG)
         self.geometry("1280x820")
         self.minsize(1080, 660)

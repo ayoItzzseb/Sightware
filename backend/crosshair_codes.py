@@ -54,17 +54,29 @@ def _hex8_alpha(tint: str) -> int:
 
 
 def decode(code: str) -> dict | None:
-    """Share code → config dict, or None if the code is not parseable."""
+    return decode_with_info(code)[0]
+
+
+def decode_with_info(code: str):
+    """(config | None, human summary of what was found)"""
     if not code:
-        return None
+        return None, "empty code"
     parts = [p.strip() for p in str(code).replace("\n", ";").split(";") if p.strip() != ""]
     if len(parts) < 4 or parts[0] != "0":
-        return None
+        return None, "not a crosshair code (must start with 0;)"
+    KNOWN = {"c", "o", "d", "z", "f", "m", "h", "t",
+             "0t", "0l", "0o", "0a", "0f", "0s",
+             "1t", "1l", "1o", "1a", "1f", "1s", "1b", "u", "w"}
     kv = {}
-    # '0;P;' prefix (profile slot + primary weapon), then key;value pairs
-    start = 2 if len(parts) > 2 and parts[1] in ("P", "S") else 1
-    for i in range(start, len(parts) - 1, 2):
-        kv[parts[i]] = parts[i + 1]
+    # scan for known keys anywhere — tolerates 0;P / 0;S prefixes and any
+    # future markers without breaking pair alignment
+    i = 1
+    while i < len(parts) - 1:
+        if parts[i] in KNOWN:
+            kv[parts[i]] = parts[i + 1]
+            i += 2
+        else:
+            i += 1
 
     def num(key, default):
         try:
@@ -75,6 +87,7 @@ def decode(code: str) -> dict | None:
     import copy
     cfg = copy.deepcopy(_BASE)
     c = cfg["crosshair"]
+    summary = []
 
     idx = int(num("c", 0))
     if 0 <= idx < len(COLORS):
@@ -103,8 +116,13 @@ def decode(code: str) -> dict | None:
         r, g, b = _hex8_rgb(c["tint"])
         c["tint"] = _rgba_to_hex8(r, g, b, int(ka * 255))
         c["lines"] = [True, True, True, True]
+        summary.append(f"inner lines: length {c['length']:g}, gap {c['gap']:g}, "
+                       f"thickness {c['thickness']:g}")
     else:
         c["lines"] = [False, False, False, False]
+        if outer_alpha > 0 or outer_len > 0:
+            summary.append("outer lines were present but hidden by opacity")
+        summary.append("no visible cross lines in this code")
 
     # outlines: o is outline opacity (0-1)
     o = max(num("o", 0), 0)
@@ -120,7 +138,9 @@ def decode(code: str) -> dict | None:
                                          int(d_op * 255))
     else:
         c["dot"]["size"] = 0
-    return cfg
+    summary.append(f"colour: {COLORS[idx] if 0 <= idx < len(COLORS) else '?'}")
+    summary.append(f"center dot: {'on, size ' + format(z, 'g') if c['dot']['size'] else 'off'}")
+    return cfg, "; ".join(summary)
 
 
 def encode(cfg: dict) -> str | None:

@@ -641,8 +641,8 @@ class RRChart(tk.Canvas):
             strip = [pad_l, py(ys[0]) + k]
             for i in range(len(series)):
                 strip.extend((px(i), py(ys[i]) + k))
-            strip.extend((w - pad_r, py(ys[-1]) + k),
-                         w - pad_r, pad_t + plot_h, pad_l, pad_t + plot_h)
+            strip.extend([w - pad_r, py(ys[-1]) + k,
+                          w - pad_r, pad_t + plot_h, pad_l, pad_t + plot_h])
             self.create_polygon(*strip, fill=fill, width=0,
                                 smooth=True, outline="")
         # line
