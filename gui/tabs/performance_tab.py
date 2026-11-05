@@ -623,15 +623,15 @@ class PerformanceTab(tk.Frame):
             import career_stats
             return career_stats.enrich(
                 self.core, (payload.get("points") or [])[-25:], limit=10,
-                log=lambda m: self._post_ui(
+                log=lambda m: self.app._post_ui(
                     lambda: self.adv_status.configure(text=m, fg=TEXT_DIM)))
 
         def done(res):
             self._enriching = False
             self._render_advanced(self._last_payload or payload)
-        self.run_bg(work, done, on_error=lambda e: (
+        self.app.run_bg(work, done, on_error=lambda e: (
             setattr(self, "_enriching", False),
-            self._post_ui(lambda: self.adv_status.configure(
+            self.app._post_ui(lambda: self.adv_status.configure(
                 text=f"Enrichment failed: {e.splitlines()[-1]}", fg=LOSS))))
 
     def _render_insights(self, insights: list[dict]) -> None:
