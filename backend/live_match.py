@@ -1492,6 +1492,7 @@ class LiveMatch:
             st = p.get("stats", {}) or {}
             agent = resolve_agent(p.get("characterId") or "") or {}
             identity = p.get("PlayerIdentity") or p.get("playerIdentity") or {}
+            party_id = p.get("partyId") or ""
             rank = ranks.get(sub) or {}
             rank_meta = rank_from_tier(rank.get("tier") or 0)
             peak_meta = rank_from_tier(rank.get("peak") or 0)
@@ -1526,6 +1527,7 @@ class LiveMatch:
                 "playerCard": valapi.player_card(identity.get("PlayerCardID") or
                                                    p.get("playerCard") or p.get("playerCardId")),
                 "isSubject": sub == subject,
+                "partyId": party_id,
             })
         players.sort(key=lambda x: -x["acs"])
 

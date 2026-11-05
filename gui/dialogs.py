@@ -8,8 +8,8 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
 
-from .theme import (AMBER, BG, BG_RAISED, CARD, LINE, LOSS, ORANGE, RED, readable,
-                   RED_SOFT, TEAL, TEXT, TEXT_DIM, TEXT_FAINT, WIN, mix)
+from .theme import (AMBER, BG, BG_RAISED, CARD, LINE, LOSS, ORANGE, PURPLE, RED,
+                   readable, RED_SOFT, TEAL, TEXT, TEXT_DIM, TEXT_FAINT, WIN, mix)
 from .widgets import (DataTable, Column, ScrollFrame, Switch, section_title)
 
 from agents import AGENTS
@@ -360,10 +360,14 @@ class SwitchHost(tk.Frame):
 
 # ── match detail ───────────────────────────────────────────────
 class MatchDetailDialog(_Dialog):
-    def __init__(self, app, match_id: str, subject: str | None = None):
+    _PARTY_COLORS = ["#FF7A1A", "#35C98A", "#57B4E8", "#F5B942", "#C4B1FA"]
+
+    def __init__(self, app, match_id: str, subject: str | None = None,
+                 highlight_puuid: str | None = None):
         super().__init__(app, "Match report", 1000, 760)
         self.match_id = match_id
         self.subject = subject
+        self.highlight_puuid = highlight_puuid
         loading = tk.Label(self, text="Loading match…", bg=BG, fg=TEXT_DIM,
                            font=("Segoe UI", 10))
         loading.pack(pady=30)
@@ -429,29 +433,75 @@ class MatchDetailDialog(_Dialog):
         teams: dict[str, list] = {}
         for p in data.get("players") or []:
             teams.setdefault(p.get("team") or "?", []).append(p)
+
+        # party detection: group players by partyId within each team
+        party_colors: dict[str, str] = {}
+        pi = 0
+        for team_players in teams.values():
+            seen_pids: dict[str, None] = {}
+            for p in team_players:
+                pid = p.get("partyId") or ""
+                if pid and p.get("partyId") not in seen_pids:
+                    seen_pids[pid] = None
+            # assign colors to parties of 2+
+            pid_counts: dict[str, int] = {}
+            for p in team_players:
+                pid = p.get("partyId") or ""
+                if pid:
+                    pid_counts[pid] = pid_counts.get(pid, 0) + 1
+            for pid, count in pid_counts.items():
+                if count >= 2:
+                    party_colors[pid] = self._PARTY_COLORS[pi % len(self._PARTY_COLORS)]
+                    pi += 1
+
         for team_id, players in teams.items():
-            label = "YOUR TEAM" if team_id == subject_team else \
-                "ENEMY TEAM" if subject_team else f"TEAM {team_id}"
-            section_title(body, label.lower()).pack(anchor="w", padx=16,
-                                                    pady=(10, 4))
+            if subject_team:
+                label = "YOUR TEAM" if team_id == subject_team else "ENEMY TEAM"
+            else:
+                label = f"TEAM {team_id}"
+            # avg rank badge for this team
+            ts_info = (data.get("teamStats") or {}).get(team_id) or {}
+            avg_rank = ts_info.get("avgRank", "")
+            head_frame = tk.Frame(body, bg=BG)
+            head_frame.pack(fill="x", padx=16, pady=(10, 4))
+            _section_head(head_frame, label, bg=BG).pack(side="left")
+            if avg_rank:
+                tk.Label(head_frame, text=f"avg rank: {avg_rank}", bg=BG,
+                         fg=TEXT_FAINT, font=("Segoe UI", 8)).pack(
+                    side="left", padx=(10, 0))
             rows = []
             for p in players:
                 name = p.get("name") or "—"
-                if p.get("isSubject"):
+                if p.get("isSelf"):
                     name += "  (you)"
+                elif p.get("isSubject"):
+                    name += "  (viewed player)"
                 if p.get("isMatchMvp"):
                     name += "  ★"
+                # party badge
+                party_badge = ""
+                party_color = None
+                pid = p.get("partyId") or ""
+                if pid and pid in party_colors:
+                    party_badge = f"  [{chr(0x25CF)}]"
+                    party_color = party_colors[pid]
+                is_highlight = (self.highlight_puuid and
+                                p.get("puuid") == self.highlight_puuid)
+                fb = p.get("firstBloods")
+                fd = p.get("firstDeaths")
                 rows.append({
                     "cells": {
                         "agent": p.get("agent") or "—",
-                        "name": name,
+                        "name": name + party_badge,
                         "kills": str(p.get("kills", 0)),
                         "deaths": str(p.get("deaths", 0)),
                         "assists": str(p.get("assists", 0)),
+                        "kd": str(p.get("kd", "—")) if p.get("kd") is not None else "—",
                         "acs": str(p.get("acs", 0)) if p.get("acs") is not None else "—",
                         "hs": f"{p.get('hsPct')}%" if p.get("hsPct") is not None else "—",
                         "adr": str(p.get("adr")) if p.get("adr") is not None else "—",
-                        "fb": str(p.get("firstBloods")) if p.get("firstBloods") is not None else "—",
+                        "fb": str(fb) if fb is not None else "—",
+                        "fd": str(fd) if fd is not None else "—",
                         "mk": str(p.get("multiKills")) if p.get("multiKills") is not None else "—",
                         "aces": str(p.get("aces")) if p.get("aces") is not None else "—",
                         "rank": p.get("rank") or "—",
@@ -460,21 +510,26 @@ class MatchDetailDialog(_Dialog):
                     "colors": {
                         "agent": readable(p.get("agentColor") or TEXT_DIM),
                         "rank": p.get("rankColor") or TEXT,
-                        "name": TEXT,
+                        "name": party_color or TEXT,
+                        "result": party_color or TEXT,
                     },
                     "icons": {"agent": p.get("agentPortrait")},
-                    "accent": RED if p.get("isSubject") else None,
-                    "bg": mix(CARD, RED, 0.06) if p.get("isSubject") else None,
+                    "accent": RED if p.get("isSelf") else (
+                        PURPLE if is_highlight else None),
+                    "bg": mix(CARD, RED, 0.06) if p.get("isSelf") else (
+                        mix(CARD, PURPLE, 0.08) if is_highlight else None),
                 })
             table = DataTable(body, [
                 Column("agent", "Agent", 92),
-                Column("name", "Player", 170, stretch=True),
-                Column("kills", "K", 42, "e"), Column("deaths", "D", 42, "e"),
-                Column("assists", "A", 42, "e"), Column("acs", "ACS", 52, "e"),
-                Column("hs", "HS%", 50, "e"), Column("adr", "ADR", 50, "e"),
-                Column("fb", "FB", 40, "e"), Column("mk", "Multi", 44, "e"),
-                Column("aces", "Aces", 44, "e"),
-                Column("rank", "Rank", 104), Column("lvl", "Lvl", 40, "e"),
+                Column("name", "Player", 160, stretch=True),
+                Column("kills", "K", 40, "e"), Column("deaths", "D", 40, "e"),
+                Column("assists", "A", 40, "e"), Column("kd", "K/D", 48, "e"),
+                Column("acs", "ACS", 50, "e"),
+                Column("hs", "HS%", 48, "e"), Column("adr", "ADR", 48, "e"),
+                Column("fb", "FB", 38, "e"), Column("fd", "FD", 38, "e"),
+                Column("mk", "Multi", 42, "e"),
+                Column("aces", "Aces", 42, "e"),
+                Column("rank", "Rank", 100), Column("lvl", "Lvl", 38, "e"),
             ], height=27 * max(1, len(rows)) + 34, row_h=27, zebra=True)
             table.set_rows(rows)
             table.pack(fill="x", padx=16)
@@ -655,7 +710,8 @@ class PlayerProfileDialog(_Dialog):
 
     def _open_match(self, data: dict) -> None:
         if data.get("matchId"):
-            MatchDetailDialog(self.app, data["matchId"], subject=self.puuid)
+            MatchDetailDialog(self.app, data["matchId"],
+                              highlight_puuid=self.puuid)
 
 
 # ── privacy ────────────────────────────────────────────────────
