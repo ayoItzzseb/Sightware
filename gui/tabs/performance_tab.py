@@ -14,6 +14,19 @@ from ..widgets import (Banner, CalendarHeatmap, DataTable, Column, MiniProgress,
 from ..dialogs import MatchDetailDialog, PlayerProfileDialog
 
 
+def _section_head(parent, text: str, bg=None):
+    """Section header: orange accent bar + uppercase title."""
+    try:
+        bg = bg or parent.cget("bg")
+    except Exception:
+        bg = BG
+    head = tk.Frame(parent, bg=bg)
+    tk.Frame(head, bg=RED, width=3).pack(side="left", fill="y", padx=(0, 8))
+    tk.Label(head, text=text.upper(), bg=bg, fg=TEXT,
+             font=("Segoe UI", 10, "bold")).pack(side="left")
+    return head
+
+
 def _ts(ts) -> str:
     try:
         return time.strftime("%m-%d %H:%M", time.localtime(int(ts)))
@@ -68,10 +81,40 @@ class PerformanceTab(tk.Frame):
         ov = tk.Frame(body, bg=CARD, highlightbackground=LINE,
                       highlightthickness=1)
         ov.pack(fill="x", padx=16, pady=(10, 8))
-        tk.Label(ov, text="OVERVIEW", bg=CARD, fg=TEXT_FAINT,
+        _section_head(ov, "overview", bg=CARD).pack(anchor="w", padx=14,
+                                                    pady=(12, 4))
+        # hero: current rank + RR + progress to next
+        hero = tk.Frame(ov, bg=CARD)
+        hero.pack(fill="x", padx=14, pady=(0, 10))
+        hero_left = tk.Frame(hero, bg=CARD)
+        hero_left.pack(side="left", padx=(4, 20))
+        self.hero_rank = tk.Label(hero_left, text="—", bg=CARD, fg=TEXT,
+                                  font=("Segoe UI", 22, "bold"))
+        self.hero_rank.pack(anchor="w")
+        self.hero_rr = tk.Label(hero_left, text="", bg=CARD, fg=TEXT_DIM,
+                                font=("Segoe UI", 9))
+        self.hero_rr.pack(anchor="w")
+        hero_mid = tk.Frame(hero, bg=CARD)
+        hero_mid.pack(side="left", fill="both", expand=True, padx=(8, 16),
+                      pady=(6, 0))
+        self.next_lbl = tk.Label(hero_mid, text="", bg=CARD, fg=TEXT_DIM,
+                                 font=("Segoe UI", 9))
+        self.next_lbl.pack(anchor="w", pady=(8, 3))
+        self.next_bar = MiniProgress(hero_mid, height=6, color=RED)
+        self.next_bar.pack(fill="x")
+        hero_right = tk.Frame(hero, bg=CARD)
+        hero_right.pack(side="right", padx=(0, 6))
+        self.hero_wr = tk.Label(hero_right, text="—", bg=CARD, fg=TEXT,
+                                font=("Segoe UI", 18, "bold"))
+        self.hero_wr.pack(anchor="e")
+        self.hero_wl = tk.Label(hero_right, text="", bg=CARD, fg=TEXT_DIM,
+                                font=("Segoe UI", 9))
+        self.hero_wl.pack(anchor="e")
+
+        # stat chips
+        tk.Label(ov, text="STATS", bg=CARD, fg=TEXT_FAINT,
                  font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14,
-                                                    pady=(10, 4))
-        # summary cards
+                                                    pady=(4, 2))
         cards = tk.Frame(ov, bg=CARD)
         cards.pack(fill="x", padx=14, pady=(0, 4))
         self.c_rank = StatCard(cards, "current rank")
@@ -97,24 +140,13 @@ class PerformanceTab(tk.Frame):
         for sp in (self.trend_kd, self.trend_acs, self.trend_rr):
             sp.pack(side="left", padx=(0, 10), fill="x", expand=True)
 
-        prog = tk.Frame(body, bg=CARD, highlightbackground=LINE,
-                        highlightthickness=1)
-        prog.pack(fill="x", padx=16, pady=(0, 8))
-        tk.Label(prog, text="RANK PROGRESSION", bg=CARD, fg=TEXT_FAINT,
-                 font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14,
-                                                    pady=(10, 4))
-        self.next_wrap = tk.Frame(prog, bg=CARD)
-        self.next_lbl = tk.Label(self.next_wrap, text="", bg=CARD, fg=TEXT_DIM,
-                                 font=("Segoe UI", 9))
-        self.next_lbl.pack(anchor="w", padx=2, pady=(2, 2))
-        self.next_bar = MiniProgress(self.next_wrap, height=5, color=RED)
-        self.next_bar.pack(fill="x", padx=1)
-        self.next_wrap.pack(fill="x", padx=14, pady=(0, 8))
-        self.prog_card = prog
+        self.prog_card = tk.Frame(body, bg=CARD, highlightbackground=LINE,
+                                  highlightthickness=1)
+        self.prog_card.pack(fill="x", padx=16, pady=(0, 8))
 
         # RR chart
-        section_title(body, "match history (RR per game)").pack(
-            anchor="w", padx=16, pady=(10, 4))
+        _section_head(body, "match history (RR per game)").pack(
+            anchor="w", padx=16, pady=(12, 4))
         self.chart = RRChart(body)
         self.chart.pack(fill="x", padx=16)
 
@@ -129,7 +161,7 @@ class PerformanceTab(tk.Frame):
         left.pack(side="left", fill="both", expand=True, padx=(0, 8))
         right = tk.Frame(splits, bg=BG)
         right.pack(side="left", fill="both", expand=True, padx=(8, 0))
-        section_title(left, "by agent").pack(anchor="w", pady=(0, 4))
+        _section_head(left, "by agent").pack(anchor="w", pady=(0, 4))
         self.agent_table = DataTable(left, [
             Column("name", "Agent", 110),
             Column("games", "Games", 60, "e"),
@@ -139,7 +171,7 @@ class PerformanceTab(tk.Frame):
             Column("avgAcs", "ACS", 56, "e"),
         ], height=170, row_h=26)
         self.agent_table.pack(fill="x")
-        section_title(right, "by map").pack(anchor="w", pady=(0, 4))
+        _section_head(right, "by map").pack(anchor="w", pady=(0, 4))
         self.map_table = DataTable(right, [
             Column("name", "Map", 110),
             Column("games", "Games", 60, "e"),
@@ -153,10 +185,8 @@ class PerformanceTab(tk.Frame):
         cal = tk.Frame(body, bg=CARD, highlightbackground=LINE,
                        highlightthickness=1)
         cal.pack(fill="x", padx=16, pady=(12, 0))
-        tk.Label(cal, text="PLAY CALENDAR - click a day to see every match",
-                 bg=CARD, fg=TEXT_FAINT,
-                 font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14,
-                                                    pady=(10, 4))
+        _section_head(cal, "play calendar — click a day for every match",
+                      bg=CARD).pack(anchor="w", padx=14, pady=(12, 4))
         nav = tk.Frame(cal, bg=CARD)
         nav.pack(fill="x", padx=14, pady=(0, 4))
         ttk.Button(nav, text="◀", style="Ghost.TButton", width=3,
@@ -189,7 +219,7 @@ class PerformanceTab(tk.Frame):
             self.heatmap.set_month(months_avail[-1])
         self._refresh_month_nav()
 
-        section_title(body, "schedule").pack(anchor="w", padx=16, pady=(12, 4))
+        _section_head(body, "schedule").pack(anchor="w", padx=16, pady=(12, 4))
         self.schedule_table = DataTable(body, [
             Column("name", "When", 110),
             Column("games", "Games", 70, "e"),
@@ -200,7 +230,7 @@ class PerformanceTab(tk.Frame):
         self.schedule_table.pack(fill="x", padx=16)
 
         # rank changes
-        section_title(body, "rank changes").pack(anchor="w", padx=16,
+        _section_head(body, "rank changes").pack(anchor="w", padx=16,
                                                  pady=(12, 4))
         self.changes_table = DataTable(body, [
             Column("ts", "Date", 110),
@@ -213,7 +243,7 @@ class PerformanceTab(tk.Frame):
         # match list
         match_head = tk.Frame(body, bg=BG)
         match_head.pack(fill="x", padx=16, pady=(12, 4))
-        section_title(match_head, "matches").pack(side="left")
+        _section_head(match_head, "matches").pack(side="left")
         ttk.Button(match_head, text="Export CSV", style="Ghost.TButton",
                    command=self._export_matches_csv).pack(side="right")
         tk.Label(match_head, text="click a row for the full match report",
@@ -314,10 +344,17 @@ class PerformanceTab(tk.Frame):
     def _render_summary(self, payload: dict) -> None:
         s = payload.get("summary") or {}
         current = s.get("current") or {}
+        self.hero_rank.configure(text=current.get("name", "—"),
+                                 fg=current.get("color") or TEXT)
+        self.hero_rr.configure(text=f"{current.get('rr') or 0} RR in current rank")
         self.c_rank.set(current.get("name", "—"),
                         sub=f"{current.get('rr') or 0} RR",
                         color=current.get("color") or TEXT)
         wr = s.get("winRate")
+        self.hero_wr.configure(text=f"{wr}%" if wr is not None else "—",
+                               fg=WIN if (wr or 0) >= 50 else TEXT)
+        self.hero_wl.configure(text=f"{s.get('wins', 0)}W · "
+                                    f"{s.get('losses', 0)}L")
         self.c_wr.set(f"{wr}%" if wr is not None else "—",
                       sub=f"{s.get('wins', 0)}W · {s.get('losses', 0)}L",
                       color=WIN if (wr or 0) >= 50 else TEXT)
@@ -335,9 +372,8 @@ class PerformanceTab(tk.Frame):
 
         nxt = s.get("next")
         if nxt:
-            self.next_wrap.pack(fill="x", padx=16, pady=(0, 8))
             self.next_lbl.configure(
-                text=f"Next rank: {nxt.get('name')} — {nxt.get('rrNeeded', 0)} RR to go")
+                text=f"{nxt.get('rrNeeded', 0)} RR to {nxt.get('name')}")
             self.next_bar.set(nxt.get("progress", 0))
             self._render_projection(payload, nxt)
         else:
@@ -436,7 +472,7 @@ class PerformanceTab(tk.Frame):
             child.destroy()
         if not insights:
             return
-        section_title(self.insights_wrap, "insights").pack(anchor="w",
+        _section_head(self.insights_wrap, "insights").pack(anchor="w",
                                                            pady=(0, 4))
         for ins in insights[:6]:
             tone = ins.get("tone", "neutral")
