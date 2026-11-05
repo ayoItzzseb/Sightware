@@ -718,7 +718,12 @@ class PlayerProfileDialog(_Dialog):
 
     def _open_match(self, data: dict) -> None:
         if data.get("matchId"):
-            MatchDetailDialog(self.app, data["matchId"],
+            # always use the LOCAL player as subject so the Riot client
+            # returns complete match data; highlight the encounter player
+            import encounter_log
+            accounts = list(encounter_log._load().get("accounts", {}).keys())
+            local_puuid = accounts[0] if accounts else None
+            MatchDetailDialog(self.app, data["matchId"], subject=local_puuid,
                               highlight_puuid=self.puuid)
 
 
