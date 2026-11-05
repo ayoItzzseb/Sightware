@@ -472,7 +472,7 @@ class MatchDetailDialog(_Dialog):
             avg_rank = ts_info.get("avgRank", "")
             head_frame = tk.Frame(body, bg=BG)
             head_frame.pack(fill="x", padx=16, pady=(10, 4))
-            _section_head(head_frame, label, bg=BG).pack(side="left")
+            section_head(head_frame, label, bg=BG).pack(side="left")
             if avg_rank:
                 tk.Label(head_frame, text=f"avg rank: {avg_rank}", bg=BG,
                          fg=TEXT_FAINT, font=("Segoe UI", 8)).pack(
