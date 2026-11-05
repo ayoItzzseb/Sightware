@@ -147,6 +147,7 @@ class EncountersTab(tk.Frame):
             text=("refreshing in background…" if payload.get("refreshing")
                   else f"scope: {payload.get('scope', self._scope)}"))
 
+        notes = _load_notes()
         rows = []
         for p in players:
             with_n = p.get("withCount") or 0
@@ -155,7 +156,7 @@ class EncountersTab(tk.Frame):
             rows.append({
                 "cells": {
                     "name": p.get("name") or "—",
-                    "note": _load_notes().get(
+                    "note": notes.get(
                         (p.get("puuid") or p.get("name") or "").lower(), ""),
                     "agent": p.get("topAgent") or "—",
                     "with": str(with_n) if with_n else "",
@@ -250,6 +251,7 @@ class EncountersTab(tk.Frame):
         import csv as csvmod
         notes = _load_notes()
         players = getattr(self, "_players", []) or []
+        notes = _load_notes()
         rows = []
         for p in players:
             key = (p.get("puuid") or p.get("name") or "").lower()

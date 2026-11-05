@@ -432,7 +432,8 @@ class PerformanceTab(tk.Frame):
             self.next_bar.set(nxt.get("progress", 0))
             self._render_projection(payload, nxt)
         else:
-            self.next_wrap.pack_forget()
+            self.next_lbl.configure(text="")
+            self.next_bar.configure(value=0)
         self._render_trends(payload)
         self._render_map_picks(payload)
         self._render_economy(payload)

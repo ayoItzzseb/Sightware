@@ -91,7 +91,8 @@ def aggregate(points: list[dict]) -> dict:
     return out
 
 
-def enrich(core, points: list[dict], limit: int = BATCH, log=None) -> dict:
+def enrich(core, points: list[dict], limit: int = BATCH, log=None,
+           self_puuid: str | None = None) -> dict:
     """Fetch deep stats for stored matches that lack them. Works only while
     the local Riot client can serve match details. Returns progress info."""
     data = _load()
@@ -115,7 +116,8 @@ def enrich(core, points: list[dict], limit: int = BATCH, log=None) -> dict:
             failed += 1
             continue
         me = next((pl for pl in detail.get("players", [])
-                   if pl.get("isSubject")), None)
+                   if pl.get("isSubject")
+                   or pl.get("puuid") == (self_puuid or "")), None)
         if not me:
             tries[mid] = now
             failed += 1

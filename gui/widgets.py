@@ -513,7 +513,7 @@ class DataTable(tk.Canvas):
             acc += rh
             if ry < acc:
                 return idx
-        return len(self._heights) - 1
+        return -1
 
     def _on_motion(self, evt) -> None:
         idx = self._row_at(evt.y)
@@ -546,6 +546,7 @@ class DataTable(tk.Canvas):
                     self.redraw()
                     return
         idx = self._row_at(evt.y)
+        self._sel = idx
         if 0 <= idx < len(self._rows) and self._on_row_click:
             self._on_row_click(self._rows[idx].get("data", self._rows[idx]))
 
@@ -676,7 +677,7 @@ class RRChart(tk.Canvas):
             line1 = f"{p.get('result', '')}  {('+' if (delta or 0) > 0 else '')}{delta if delta is not None else ''} RR"
             line2 = f"{p.get('map', '')} · {p.get('mode', '')}"
             lines = [line1, line2]
-            tw = max(self.font.measure if False else 0 for _ in ())  # noqa
+            tw = 0  # noqa
             width = max(len(l) for l in lines) * 6 + 16
             bx = min(max(cx + 10, 4), w - width - 4)
             by = max(cy - 44, 4)

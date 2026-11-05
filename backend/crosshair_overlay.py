@@ -315,7 +315,7 @@ class OverlayEngine:
         out = json.loads(json.dumps(cfg))
         c = out["crosshair"]
         style = c.get("style")
-        if style in ("cross", "circle"):
+        if style in ("cross", "circle", "arc"):
             for key in ("gap", "length", "thickness"):
                 v = round(float(c.get(key, 0) or 0) * scale, 3)
                 c[key] = max(v, 0.1) if key in ("thickness", "length") else max(v, 0)
@@ -397,8 +397,8 @@ class OverlayEngine:
         if not binding or not binding.strip():
             return False
         kb = {p.strip().casefold() for p in key.split("+")}
-        want = [p.strip().casefold() for p in binding.split("+")]
-        return all(p in kb for p in want)
+        want = {p.strip().casefold() for p in binding.split("+")}
+        return kb == want
 
     def _on_input(self, key: str, state: str) -> None:
         s = self.settings

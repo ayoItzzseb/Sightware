@@ -852,6 +852,7 @@ class CrosshairTab(tk.Frame):
         filtered = entries
 
         def show_preview(e):
+            nonlocal prev_wrap
             for w in preview.winfo_children():
                 if w is not prev_wrap and w is not info and w is not btns:
                     w.destroy()
@@ -875,11 +876,12 @@ class CrosshairTab(tk.Frame):
             cv.configure(width=120 * zoom, height=120 * zoom)
 
         def render_list(_e=None):
+            nonlocal filtered
             q = search_var.get().casefold()
             lb.delete(0, "end")
-            for e in entries:
-                if q and q not in e.get("name", "").casefold():
-                    continue
+            filtered = [e for e in entries
+                        if not q or q in e.get("name", "").casefold()]
+            for e in filtered:
                 lb.insert("end", e.get("name", "?"))
             if lb.size():
                 lb.selection_set(0)
@@ -1164,6 +1166,10 @@ class CrosshairTab(tk.Frame):
         elif kind == "adsKey":
             s["adsKey" if index == -1 else "adsKey2"] = key
         elif kind == "slot":
+            while len(s.get("quickload", [])) <= index:
+                s.setdefault("quickload", []).append(
+                    {"name": f"Slot {len(s['quickload']) + 1}", "key": "",
+                     "crosshair": ""})
             s["quickload"][index]["key"] = key
         self.engine.save_settings(s)
 

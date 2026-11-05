@@ -145,7 +145,7 @@ class LiveTab(tk.Frame):
         straight from the local encounter log."""
         self._clear_brief()
         players = [p for p in (board.get("players") or []) if p.get("puuid")]
-        me = next((p for p in players if p.get("isSubject")), None)
+        me = next((p for p in players if p.get("isSelf") or p.get("isSubject")), None)
         if not me or not me.get("team"):
             return
         try:
@@ -157,7 +157,8 @@ class LiveTab(tk.Frame):
         for p in players:
             if p is me or not p.get("puuid"):
                 continue
-            entry = encounter_log.get_one(p["puuid"]) or {}
+            owner = board.get("selfPuuid") or (me.get("puuid") if me else "") or ""
+            entry = encounter_log.get_one(owner, p["puuid"]) or {}
             vs_w, vs_l = int(entry.get("winsAgainst") or 0), int(entry.get("lossesAgainst") or 0)
             with_w, with_l = int(entry.get("winsWith") or 0), int(entry.get("lossesWith") or 0)
             enemy = p.get("team") != my_team

@@ -131,7 +131,7 @@ def _observe_once() -> float:
                 import pick_advisor
                 import history
                 rec = pick_advisor.recommend(
-                    history.payload(auth.puuid).get("matches") or []
+                    history.payload(auth.puuid).get("points") or []
                 ).get("agent")
             except Exception:
                 rec = None
