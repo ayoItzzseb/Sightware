@@ -151,13 +151,13 @@ class PerformanceTab(tk.Frame):
         self.chart.pack(fill="x", padx=16)
 
         # ── advanced stats (career deep stats, enriched locally) ──
-        adv = tk.Frame(body, bg=CARD, highlightbackground=LINE,
+        self.adv_frame = tk.Frame(body, bg=CARD, highlightbackground=LINE,
                        highlightthickness=1)
-        adv.pack(fill="x", padx=16, pady=(12, 0))
-        tk.Label(adv, text="ADVANCED STATS (CAREER)", bg=CARD, fg=TEXT_FAINT,
+        self.adv_frame.pack(fill="x", padx=16, pady=(12, 0))
+        tk.Label(self.adv_frame, text="ADVANCED STATS (CAREER)", bg=CARD, fg=TEXT_FAINT,
                  font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14,
                                                     pady=(10, 4))
-        self.adv_chips = tk.Frame(adv, bg=CARD)
+        self.adv_chips = tk.Frame(self.adv_frame, bg=CARD)
         self.adv_chips.pack(fill="x", padx=14)
 
         def adv_chip(label):
@@ -177,10 +177,10 @@ class PerformanceTab(tk.Frame):
         self.adv_fd = adv_chip("first deaths / match")
         self.adv_mk = adv_chip("multi-kills")
         self.adv_aces = adv_chip("aces")
-        self.adv_status = tk.Label(adv, text="", bg=CARD, fg=TEXT_FAINT,
+        self.adv_status = tk.Label(self.adv_frame, text="", bg=CARD, fg=TEXT_FAINT,
                                    font=("Segoe UI", 8))
         self.adv_status.pack(anchor="w", padx=14, pady=(8, 2))
-        self.adv_table = DataTable(adv, [
+        self.adv_table = DataTable(self.adv_frame, [
             Column("date", "Date", 96),
             Column("agent", "Agent", 90),
             Column("result", "Result", 84),
@@ -239,7 +239,8 @@ class PerformanceTab(tk.Frame):
 
         cal = tk.Frame(body, bg=CARD, highlightbackground=LINE,
                        highlightthickness=1)
-        cal.pack(fill="x", padx=16, pady=(12, 0))
+        cal.pack(fill="x", padx=16, pady=(12, 0),
+                 before=self.adv_frame)
         _section_head(cal, "play calendar — click a day for every match",
                       bg=CARD).pack(anchor="w", padx=14, pady=(12, 4))
         nav = tk.Frame(cal, bg=CARD)
