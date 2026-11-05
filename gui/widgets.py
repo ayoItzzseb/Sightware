@@ -718,25 +718,44 @@ class RRChart(tk.Canvas):
 # ── play-calendar heatmap ──────────────────────────────────────
 class CalendarHeatmap(tk.Canvas):
     """GitHub-style W/L calendar built from history's schedule.calendar rows
-    ({name: 'YYYY-MM-DD', games, wins, winRate, netRr})."""
+    ({name: 'YYYY-MM-DD', games, wins, winRate, netRr}).
+    Hover shows a summary; clicking a day fires on_click(day)."""
 
-    CELL = 15
-    GAP = 3
-    PAD_L = 30
+    CELL = 19
+    GAP = 4
+    PAD_L = 34
 
-    def __init__(self, master, bg: str = CARD, on_hover=None, height: int = 140):
+    def __init__(self, master, bg: str = CARD, on_hover=None, height: int = 160,
+                 on_click=None):
         super().__init__(master, bg=bg, height=height, highlightthickness=1,
                          highlightbackground=LINE, bd=0)
         self._days: dict[str, dict] = {}
         self._cells: list[tuple[int, int, dict]] = []
         self._on_hover = on_hover
+        self._on_click = on_click
+        self._hovered: str | None = None
+        self.configure(cursor="hand2")
         self.bind("<Configure>", lambda e: self.redraw())
         self.bind("<Motion>", self._on_motion)
-        self.bind("<Leave>", lambda e: self._hover_cb(None))
+        self.bind("<Leave>", lambda e: (self._hover_cb(None),
+                                        self._set_hovered(None)))
+        self.bind("<Button-1>", self._on_click_day)
 
     def set_days(self, calendar: list[dict]) -> None:
         self._days = {d.get("name", ""): d for d in calendar or []}
         self.redraw()
+
+    def _set_hovered(self, name: str | None) -> None:
+        if self._hovered != name:
+            self._hovered = name
+            self.redraw()
+
+    def _on_click_day(self, evt) -> None:
+        for x, y, day in self._cells:
+            if x <= evt.x <= x + self.CELL and y <= evt.y <= y + self.CELL:
+                if self._on_click and day.get("games"):
+                    self._on_click(day)
+                return
 
     def _hover_cb(self, text: str | None) -> None:
         if self._on_hover:
@@ -798,6 +817,10 @@ class CalendarHeatmap(tk.Canvas):
             self.create_rectangle(x, y, x + self.CELL, y + self.CELL,
                                   fill=self._cell_color(day), outline="",
                                   tags=("day", name))
+            if self._hovered and day.get("name") == self._hovered:
+                cv.create_rectangle(x - 2, y - 2, x + self.CELL + 2,
+                                    y + self.CELL + 2,
+                                    outline=TEXT, width=1)
             self._cells.append((x, y, day))
         self.configure(scrollregion=(0, 0, w, h))
 
@@ -807,6 +830,7 @@ class CalendarHeatmap(tk.Canvas):
             if x <= evt.x <= x + self.CELL and y <= evt.y <= y + self.CELL:
                 hit = day
                 break
+        self._set_hovered(hit.get("name") if hit else None)
         if hit is None:
             self._hover_cb(None)
             return

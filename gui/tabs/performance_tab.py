@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ..theme import (AMBER, BG, CARD, LINE, ORANGE, RED, TEAL, TEXT, TEXT_DIM,
-                   TEXT_FAINT, WIN, LOSS)
+                   TEXT_FAINT, WIN, LOSS, mix)
 from ..widgets import (Banner, CalendarHeatmap, DataTable, Column, MiniProgress,
                      RRChart, ScrollFrame, Sparkline, StatCard, section_title)
 
@@ -64,9 +64,16 @@ class PerformanceTab(tk.Frame):
         body = self.scroll.inner
         self.body = body
 
+        # ── overview section ──
+        ov = tk.Frame(body, bg=CARD, highlightbackground=LINE,
+                      highlightthickness=1)
+        ov.pack(fill="x", padx=16, pady=(10, 8))
+        tk.Label(ov, text="OVERVIEW", bg=CARD, fg=TEXT_FAINT,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14,
+                                                    pady=(10, 4))
         # summary cards
-        cards = tk.Frame(body, bg=BG)
-        cards.pack(fill="x", padx=16, pady=(10, 6))
+        cards = tk.Frame(ov, bg=CARD)
+        cards.pack(fill="x", padx=14, pady=(0, 4))
         self.c_rank = StatCard(cards, "current rank")
         self.c_wr = StatCard(cards, "win rate")
         self.c_matches = StatCard(cards, "matches")
@@ -77,8 +84,8 @@ class PerformanceTab(tk.Frame):
                   self.c_net, self.c_best, self.c_streak):
             c.pack(side="left", padx=(0, 8), fill="x", expand=True)
 
-        self.trend_wrap = tk.Frame(body, bg=BG)
-        self.trend_wrap.pack(fill="x", padx=16, pady=(2, 0))
+        self.trend_wrap = tk.Frame(ov, bg=CARD)
+        self.trend_wrap.pack(fill="x", padx=14, pady=(6, 10))
         tk.Label(self.trend_wrap, text="TRENDS - last 20 ranked matches",
                  bg=BG, fg=TEXT_FAINT, font=("Segoe UI", 8, "bold")
                  ).pack(anchor="w")
@@ -90,15 +97,24 @@ class PerformanceTab(tk.Frame):
         for sp in (self.trend_kd, self.trend_acs, self.trend_rr):
             sp.pack(side="left", padx=(0, 10), fill="x", expand=True)
 
-        self.next_wrap = tk.Frame(body, bg=BG)
-        self.next_lbl = tk.Label(self.next_wrap, text="", bg=BG, fg=TEXT_DIM,
-                                 font=("Segoe UI", 8))
+        prog = tk.Frame(body, bg=CARD, highlightbackground=LINE,
+                        highlightthickness=1)
+        prog.pack(fill="x", padx=16, pady=(0, 8))
+        tk.Label(prog, text="RANK PROGRESSION", bg=CARD, fg=TEXT_FAINT,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14,
+                                                    pady=(10, 4))
+        self.next_wrap = tk.Frame(prog, bg=CARD)
+        self.next_lbl = tk.Label(self.next_wrap, text="", bg=CARD, fg=TEXT_DIM,
+                                 font=("Segoe UI", 9))
         self.next_lbl.pack(anchor="w", padx=2, pady=(2, 2))
         self.next_bar = MiniProgress(self.next_wrap, height=5, color=RED)
         self.next_bar.pack(fill="x", padx=1)
-        self.next_wrap.pack(fill="x", padx=16, pady=(0, 8))
+        self.next_wrap.pack(fill="x", padx=14, pady=(0, 8))
+        self.prog_card = prog
 
         # RR chart
+        section_title(body, "match history (RR per game)").pack(
+            anchor="w", padx=16, pady=(10, 4))
         self.chart = RRChart(body)
         self.chart.pack(fill="x", padx=16)
 
@@ -134,13 +150,31 @@ class PerformanceTab(tk.Frame):
         ], height=170, row_h=26)
         self.map_table.pack(fill="x")
 
-        section_title(body, "play calendar (net RR per day)").pack(
-            anchor="w", padx=16, pady=(12, 4))
-        self.heatmap = CalendarHeatmap(body, height=140)
-        self.heatmap.pack(fill="x", padx=16)
-        self.heatmap_info = tk.Label(body, text="hover a day for details",
-                                     bg=BG, fg=TEXT_FAINT, font=("Segoe UI", 8))
-        self.heatmap_info.pack(anchor="w", padx=18, pady=(2, 0))
+        cal = tk.Frame(body, bg=CARD, highlightbackground=LINE,
+                       highlightthickness=1)
+        cal.pack(fill="x", padx=16, pady=(12, 0))
+        tk.Label(cal, text="PLAY CALENDAR - click a day to see every match",
+                 bg=CARD, fg=TEXT_FAINT,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14,
+                                                    pady=(10, 4))
+        self.heatmap = CalendarHeatmap(cal, height=170,
+                                       on_click=self._open_day)
+        self.heatmap.pack(fill="x", padx=14)
+        legend = tk.Frame(cal, bg=CARD)
+        legend.pack(anchor="w", padx=14, pady=(6, 0))
+        tk.Label(legend, text="fewer games", bg=CARD, fg=TEXT_FAINT,
+                 font=("Segoe UI", 8)).pack(side="left")
+        for col in ("#1A2530", mix("#1A2530", LOSS, 0.5), mix("#1A2530", WIN, 0.3),
+                    mix("#1A2530", WIN, 0.6), mix("#1A2530", WIN, 0.9)):
+            tk.Label(legend, text="   ", bg=col,
+                     highlightbackground=LINE, highlightthickness=1
+                     ).pack(side="left", padx=1)
+        tk.Label(legend, text="more games · green = won RR · red = lost RR",
+                 bg=CARD, fg=TEXT_FAINT, font=("Segoe UI", 8)).pack(side="left",
+                                                                    padx=4)
+        self.heatmap_info = tk.Label(cal, text="hover a day for a summary",
+                                     bg=CARD, fg=TEXT_FAINT, font=("Segoe UI", 8))
+        self.heatmap_info.pack(anchor="w", padx=16, pady=(2, 10))
         self.heatmap._on_hover = self._heatmap_hover
 
         section_title(body, "schedule").pack(anchor="w", padx=16, pady=(12, 4))
@@ -315,13 +349,9 @@ class PerformanceTab(tk.Frame):
             text = (f"Projection: {nxt.get('name')} in ~{games} matches at your "
                     f"current pace ({avg:+.1f} RR/match over {len(deltas)} games).")
         if not hasattr(self, "_proj_banner"):
-            self._proj_banner = Banner(self.scroll.inner, "", "info")
+            self._proj_banner = Banner(self.prog_card, "", "info")
         self._proj_banner.set(text)
-        try:
-            self._proj_banner.pack(fill="x", padx=16, pady=(0, 4),
-                                   before=self.insights_wrap)
-        except Exception:
-            self._proj_banner.pack(fill="x", padx=16, pady=(0, 4))
+        self._proj_banner.pack(fill="x", padx=14, pady=(0, 10))
 
     def _render_trends(self, payload):
         pts = (payload.get("points") or [])[-20:]
@@ -352,14 +382,12 @@ class PerformanceTab(tk.Frame):
                 wr, g, agent = rated[0]
                 picks.append(f"{map_name}: {agent} ({round(wr * 100)}% WR, {g} games)")
         if not hasattr(self, "_picks_banner"):
-            self._picks_banner = Banner(self.scroll.inner, "", "info")
+            self._picks_banner = Banner(self.prog_card, "", "info")
         if picks:
             self._picks_banner.set("Best agents by map — " + "  ·  ".join(picks[:6]))
-            try:
-                self._picks_banner.pack(fill="x", padx=16, pady=(0, 4),
-                                        after=self._proj_banner)
-            except Exception:
-                self._picks_banner.pack(fill="x", padx=16, pady=(0, 4))
+            self._picks_banner.pack(fill="x", padx=14, pady=(0, 10))
+        elif hasattr(self, "_picks_banner"):
+            self._picks_banner.pack_forget()
 
     def _export_matches_csv(self):
         from tkinter import filedialog
@@ -453,6 +481,34 @@ class PerformanceTab(tk.Frame):
             })
         self.schedule_table.set_rows(srows)
 
+    def _open_day(self, day: dict) -> None:
+        day_name = day.get("name", "")
+        matches = self._matches_for_day(day_name)
+        DayDetailsDialog(self.app, day, matches)
+
+    def _matches_for_day(self, day_name: str) -> list[dict]:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        payload = self._last_payload or {}
+        tz = self._tz_value()
+        zone = None
+        if tz:
+            try:
+                zone = ZoneInfo(tz)
+            except Exception:
+                zone = None
+        out = []
+        for p in (payload.get("points") or []):
+            ts = p.get("ts")
+            if not ts:
+                continue
+            local = (datetime.fromtimestamp(ts, zone) if zone
+                     else datetime.fromtimestamp(ts))
+            if local.strftime("%Y-%m-%d") == day_name:
+                out.append({**p, "_time": local.strftime("%H:%M")})
+        out.sort(key=lambda m: m.get("ts") or 0)
+        return out
+
     def _heatmap_hover(self, text: str | None) -> None:
         self.heatmap_info.configure(text=text or "hover a day for details",
                                     fg=TEXT_DIM if text else TEXT_FAINT)
@@ -518,3 +574,104 @@ class PerformanceTab(tk.Frame):
         if not data.get("matchId"):
             return
         MatchDetailDialog(self.app, data["matchId"], subject=data.get("subject"))
+
+
+class DayDetailsDialog(tk.Toplevel):
+    """Everything recorded about one calendar day: summary chips plus a
+    clickable list of every match played (opens the full match report)."""
+
+    def __init__(self, app, day: dict, matches: list[dict]):
+        super().__init__()
+        self.app = app
+        day_name = day.get("name", "?")
+        self.title(f"Day details - {day_name}")
+        self.configure(bg=BG)
+        self.transient(app.winfo_toplevel())
+        dlg_w, dlg_h = 720, 620
+        self.geometry(f"{dlg_w}x{dlg_h}+{max(0, app.winfo_rootx() + 180)}+"
+                      f"{max(0, app.winfo_rooty() + 60)}")
+        self.grab_set()
+
+        head = tk.Frame(self, bg=BG)
+        head.pack(fill="x", padx=18, pady=(16, 4))
+        tk.Label(head, text=day_name, bg=BG, fg=TEXT,
+                 font=("Segoe UI", 16, "bold")).pack(side="left")
+        wins = int(day.get("wins") or 0)
+        games = int(day.get("games") or 0)
+        net = int(day.get("netRr") or 0)
+        wr = day.get("winRate")
+        chips = tk.Frame(self, bg=BG)
+        chips.pack(fill="x", padx=18, pady=(4, 10))
+
+        def chip(label, value, color=TEXT):
+            box = tk.Frame(chips, bg=CARD, highlightbackground=LINE,
+                           highlightthickness=1, padx=14, pady=8)
+            box.pack(side="left", padx=(0, 8))
+            tk.Label(box, text=value, bg=CARD, fg=color,
+                     font=("Segoe UI", 13, "bold")).pack(anchor="w")
+            tk.Label(box, text=label, bg=CARD, fg=TEXT_FAINT,
+                     font=("Segoe UI", 7, "bold")).pack(anchor="w")
+        chip("games", str(games))
+        chip("record", f"{wins}W - {games - wins}L",
+             WIN if wins * 2 >= games else LOSS if wins else TEXT)
+        chip("win rate", f"{wr}%" if wr is not None else "—")
+        chip("net RR", f"{'+' if net > 0 else ''}{net}",
+             WIN if net > 0 else LOSS if net < 0 else TEXT)
+
+        tk.Label(self, text="EVERY MATCH - click one for the full report "
+                            "(all players, rounds, ACS...)", bg=BG,
+                 fg=TEXT_FAINT, font=("Segoe UI", 8, "bold")
+                 ).pack(anchor="w", padx=18, pady=(6, 4))
+
+        if not matches:
+            tk.Label(self, text="No matches recorded for this day.",
+                     bg=BG, fg=TEXT_FAINT, font=("Segoe UI", 9)).pack(pady=20)
+            return
+
+        columns = [
+            Column("time", "Time", 70, "e"),
+            Column("map", "Map", 130),
+            Column("agent", "Agent", 110),
+            Column("result", "Result", 90),
+            Column("delta", "RR", 60, "e"),
+            Column("kd", "K/D", 60, "e"),
+            Column("acs", "ACS", 60, "e"),
+        ]
+        rows = []
+        for m in matches:
+            result = m.get("result") or "—"
+            delta = m.get("delta")
+            rows.append({
+                "cells": {
+                    "time": m.get("_time", "—"),
+                    "map": m.get("map") or "—",
+                    "agent": m.get("agent") or "—",
+                    "result": result,
+                    "delta": f"{'+' if (delta or 0) > 0 else ''}"
+                             f"{delta if delta is not None else '—'}",
+                    "kd": str(m.get("kd")) if m.get("kd") is not None else "—",
+                    "acs": str(m.get("acs")) if m.get("acs") is not None else "—",
+                },
+                "colors": {
+                    "result": WIN if result == "Victory"
+                              else LOSS if result == "Defeat" else TEXT_DIM,
+                    "delta": WIN if (delta or 0) > 0
+                             else LOSS if (delta or 0) < 0 else TEXT_DIM,
+                },
+                "data": {"kind": "match", "matchId": m.get("matchId"),
+                         "subject": None},
+            })
+        table = DataTable(self, columns, height=max(160, 30 * len(rows)),
+                          row_h=26, on_row_click=self._open_match)
+        table.pack(fill="both", expand=True, padx=18, pady=(0, 8))
+        table.set_rows(rows)
+        tk.Label(self, text=f"{len(matches)} matches · {wins}W-{games - wins}L "
+                            f"· {net:+d} RR across the day",
+                 bg=BG, fg=TEXT_FAINT, font=("Segoe UI", 8)).pack(anchor="w",
+                                                                  padx=18,
+                                                                  pady=(0, 12))
+
+    def _open_match(self, data: dict) -> None:
+        if data.get("matchId"):
+            MatchDetailDialog(self.app, data["matchId"],
+                              subject=data.get("subject"))
