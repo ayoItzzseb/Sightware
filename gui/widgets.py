@@ -735,6 +735,7 @@ class CalendarHeatmap(tk.Canvas):
         self._on_hover = on_hover
         self._on_click = on_click
         self._hovered: str | None = None
+        self._month: str | None = None
         self.configure(cursor="hand2")
         self.bind("<Configure>", lambda e: self.redraw())
         self.bind("<Motion>", self._on_motion)
@@ -745,6 +746,28 @@ class CalendarHeatmap(tk.Canvas):
     def set_days(self, calendar: list[dict]) -> None:
         self._days = {d.get("name", ""): d for d in calendar or []}
         self.redraw()
+
+    # ── month view ─────────────────────────────────────────────
+    def months_available(self) -> list[str]:
+        """Sorted 'YYYY-MM' strings that have any recorded games."""
+        return sorted({name[:7] for name in self._days})
+
+    def set_month(self, year_month: str | None) -> None:
+        """Show a single month ('YYYY-MM') as its own grid."""
+        self._month = year_month
+        self._hovered = None
+        self.redraw()
+
+    def step_month(self, delta: int) -> str | None:
+        months = self.months_available()
+        if not months:
+            return None
+        if self._month not in months:
+            self.set_month(months[-1])
+            return self._month
+        i = max(0, min(len(months) - 1, months.index(self._month) + delta))
+        self.set_month(months[i])
+        return self._month
 
     def _set_hovered(self, name: str | None) -> None:
         if self._hovered != name:
@@ -782,6 +805,9 @@ class CalendarHeatmap(tk.Canvas):
     def redraw(self) -> None:
         self.delete("all")
         self._cells = []
+        if getattr(self, "_month", None):
+            self._redraw_month()
+            return
         days = sorted(self._days)
         if not days:
             self.create_text(120, (self.winfo_height() or 130) // 2,
@@ -850,6 +876,54 @@ class CalendarHeatmap(tk.Canvas):
                                       outline=TEXT, width=1)
             self._cells.append((x, y, day))
         self.configure(scrollregion=(0, 0, w, h))
+
+    def _redraw_month(self) -> None:
+        from datetime import date as _date
+        import datetime as _dt
+        y, m = (int(x) for x in self._month.split("-"))
+        first = _date(y, m, 1)
+        nxt = _date(y + (m == 12), 1 if m == 12 else m + 1, 1)
+        dim = (nxt - first).days
+        first_wd = first.weekday()  # Mon=0
+
+        w = self.winfo_width() or 640
+        step = self.CELL + self.GAP
+        head_y = 6
+        for c, lab in enumerate(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")):
+            self.create_text(self.PAD_L + c * step + self.CELL / 2, head_y,
+                             text=lab, fill=TEXT_FAINT,
+                             font=("Segoe UI", 7, "bold"))
+        month_total = 0
+        month_net = 0
+        for d in range(dim):
+            name = f"{y:04d}-{m:02d}-{d + 1:02d}"
+            col, row = divmod(first_wd + d, 7)
+            x = self.PAD_L + col * step
+            yy = head_y + 14 + row * step
+            if x + self.CELL > w:
+                continue
+            day = self._days.get(name) or {"name": name, "games": 0,
+                                           "wins": 0, "winRate": None,
+                                           "netRr": 0}
+            games = int(day.get("games") or 0)
+            month_total += games
+            month_net += int(day.get("netRr") or 0)
+            fill = self._cell_color(day) if games else "#121826"
+            self.create_rectangle(x, yy, x + self.CELL, yy + self.CELL,
+                                  fill=fill, outline="",
+                                  tags=("day", name))
+            r8, g8, b8 = rgb(fill)
+            lum = (0.2126 * r8 + 0.7152 * g8 + 0.0722 * b8) / 255
+            num_col = "#0B0D12" if lum > 0.55 else (
+                "#3A4556" if not games else "#F5F7FA")
+            self.create_text(x + self.CELL / 2, yy + self.CELL - 5,
+                             text=str(d + 1), fill=num_col,
+                             font=("Segoe UI", 7, "bold"))
+            self._cells.append((x, yy, day))
+        self.configure(scrollregion=(0, 0, w, head_y + 14 + 6 * step + 6))
+        net_txt = f"{'+' if month_net > 0 else ''}{month_net} RR"
+        self.create_text(w - 6, head_y, text=f"{month_total} games · {net_txt}",
+                         anchor="e", fill=TEXT_DIM, font=("Segoe UI", 8, "bold"))
 
     def _on_motion(self, evt) -> None:
         hit = None

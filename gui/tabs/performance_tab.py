@@ -157,6 +157,15 @@ class PerformanceTab(tk.Frame):
                  bg=CARD, fg=TEXT_FAINT,
                  font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14,
                                                     pady=(10, 4))
+        nav = tk.Frame(cal, bg=CARD)
+        nav.pack(fill="x", padx=14, pady=(0, 4))
+        ttk.Button(nav, text="◀", style="Ghost.TButton", width=3,
+                   command=lambda: self._step_month(-1)).pack(side="left")
+        self.month_cb = ttk.Combobox(nav, state="readonly", width=16)
+        self.month_cb.pack(side="left", padx=6)
+        self.month_cb.bind("<<ComboboxSelected>>", self._on_month_selected)
+        ttk.Button(nav, text="▶", style="Ghost.TButton", width=3,
+                   command=lambda: self._step_month(1)).pack(side="left")
         self.heatmap = CalendarHeatmap(cal, height=186,
                                        on_click=self._open_day)
         self.heatmap.pack(fill="x", padx=14)
@@ -176,6 +185,9 @@ class PerformanceTab(tk.Frame):
                                      bg=CARD, fg=TEXT_FAINT, font=("Segoe UI", 8))
         self.heatmap_info.pack(anchor="w", padx=16, pady=(2, 10))
         self.heatmap._on_hover = self._heatmap_hover
+        if months_avail := self.heatmap.months_available():
+            self.heatmap.set_month(months_avail[-1])
+        self._refresh_month_nav()
 
         section_title(body, "schedule").pack(anchor="w", padx=16, pady=(12, 4))
         self.schedule_table = DataTable(body, [
@@ -463,6 +475,13 @@ class PerformanceTab(tk.Frame):
         self.agent_table.set_rows(rows_of((payload.get("splits") or {}).get("agents")))
         self.map_table.set_rows(rows_of((payload.get("splits") or {}).get("maps")))
 
+        # the calendar's data lands here — pick the latest month on first load
+        if getattr(self.heatmap, "_month", None) is None:
+            months = self.heatmap.months_available()
+            if months:
+                self.heatmap.set_month(months[-1])
+        self._refresh_month_nav()
+
         srows = []
         for row in (sched.get("weekdays") or []) + (sched.get("dayparts") or []):
             if not row.get("games"):
@@ -508,6 +527,39 @@ class PerformanceTab(tk.Frame):
                 out.append({**p, "_time": local.strftime("%H:%M")})
         out.sort(key=lambda m: m.get("ts") or 0)
         return out
+
+    def _refresh_month_nav(self) -> None:
+        months = self.heatmap.months_available()
+        if not months:
+            self.month_cb.configure(values=[])
+            self.month_cb.set("—")
+            return
+        import datetime as _dt
+        labels = []
+        for ym in months:
+            y, m = (int(x) for x in ym.split("-"))
+            labels.append(_dt.date(y, m, 1).strftime("%B %Y"))
+        self.month_cb.configure(values=labels)
+        current = getattr(self.heatmap, "_month", None) or months[-1]
+        if current not in months:
+            current = months[-1]
+            self.heatmap.set_month(current)
+        self.month_cb.set(labels[months.index(current)])
+
+    def _step_month(self, delta: int) -> None:
+        current = self.heatmap.step_month(delta)
+        if current:
+            self._refresh_month_nav()
+
+    def _on_month_selected(self, _e=None) -> None:
+        import datetime as _dt
+        label = self.month_cb.get()
+        months = self.heatmap.months_available()
+        for ym in months:
+            y, m = (int(x) for x in ym.split("-"))
+            if _dt.date(y, m, 1).strftime("%B %Y") == label:
+                self.heatmap.set_month(ym)
+                return
 
     def _heatmap_hover(self, text: str | None) -> None:
         self.heatmap_info.configure(text=text or "hover a day for details",
