@@ -1,0 +1,27 @@
+[
+  {
+    "name": "TenZ (cyan)",
+    "source": "pro",
+    "code": "0;P;c;5;o;1;d;1;z;3;f;0;0t;1;0l;3;0o;2;0a;1;0f;0;1b;0"
+  },
+  {
+    "name": "Dot only",
+    "code": "0;P;c;0;h;1;t;2;o;1;d;1;z;3;f;0;0t;2;0l;1;0o;0;0a;1;0f;0;1b;0",
+    "source": "built-in"
+  },
+  {
+    "name": "Thin cross",
+    "code": "0;P;c;0;h;1;t;1;o;1;d;0;z;0;f;0;0t;1;0l;5;0o;2;0a;1;0f;0;1b;0",
+    "source": "built-in"
+  },
+  {
+    "name": "Boxed heavy",
+    "code": "0;P;c;8;u;00FF66FF;h;1;t;3;o;1;d;0;z;0;f;0;0t;3;0l;6;0o;1;0a;1;0f;0;1b;0",
+    "source": "built-in"
+  },
+  {
+    "name": "Dot + cross",
+    "code": "0;P;c;5;h;1;t;2;o;1;d;1;z;3;f;0;0t;2;0l;5;0o;3;0a;1;0f;0;1b;0",
+    "source": "built-in"
+  }
+]

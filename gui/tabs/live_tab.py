@@ -134,6 +134,60 @@ class LiveTab(tk.Frame):
                           subject=board.get("selfPuuid"))
 
     # ── board render ───────────────────────────────────────────
+
+    # ── pre-match brief (local encounter history only) ─────────
+    def _clear_brief(self):
+        for w in self.brief_frame.winfo_children():
+            w.destroy()
+
+    def _render_brief(self, board: dict) -> None:
+        """For everyone in agent select: your record with/against them,
+        straight from the local encounter log."""
+        self._clear_brief()
+        players = [p for p in (board.get("players") or []) if p.get("puuid")]
+        me = next((p for p in players if p.get("isSubject")), None)
+        if not me or not me.get("team"):
+            return
+        try:
+            import encounter_log
+        except Exception:
+            return
+        my_team = me["team"]
+        rows = []
+        for p in players:
+            if p is me or not p.get("puuid"):
+                continue
+            entry = encounter_log.get_one(p["puuid"]) or {}
+            vs_w, vs_l = int(entry.get("winsAgainst") or 0), int(entry.get("lossesAgainst") or 0)
+            with_w, with_l = int(entry.get("winsWith") or 0), int(entry.get("lossesWith") or 0)
+            enemy = p.get("team") != my_team
+            if enemy and (vs_w + vs_l) > 0:
+                rows.append((p.get("name") or "?", f"{vs_w}W-{vs_l}L vs you",
+                             WIN if vs_w > vs_l else LOSS if vs_l > vs_w else TEXT_DIM,
+                             "enemy"))
+            elif not enemy and (with_w + with_l) > 0:
+                rows.append((p.get("name") or "?", f"{with_w}W-{with_l}L with you",
+                             WIN if with_w > with_l else LOSS if with_l > with_w else TEXT_DIM,
+                             "mate"))
+        if not rows:
+            tk.Label(self.brief_frame, text="No previous history with these "
+                     "players — fresh lobby.", bg=CARD, fg=TEXT_FAINT,
+                     font=("Segoe UI", 8)).pack(anchor="w")
+            return
+        tk.Label(self.brief_frame, text="HISTORY FROM PAST GAMES", bg=CARD,
+                 fg=TEXT_FAINT, font=("Segoe UI", 7, "bold")).pack(anchor="w")
+        grid = tk.Frame(self.brief_frame, bg=CARD)
+        grid.pack(fill="x", pady=(2, 0))
+        for col in range(3):
+            grid.columnconfigure(col, weight=1)
+        for i, (name, record, color, _kind) in enumerate(rows[:9]):
+            cell = tk.Frame(grid, bg=BG_RAISED, padx=6, pady=3)
+            cell.grid(row=i // 3, column=i % 3, sticky="nsew", padx=2, pady=2)
+            tk.Label(cell, text=name.split("#")[0], bg=BG_RAISED, fg=TEXT,
+                     font=("Segoe UI", 8, "bold")).pack(anchor="w")
+            tk.Label(cell, text=record, bg=BG_RAISED, fg=color,
+                     font=("Segoe UI", 7)).pack(anchor="w")
+
     def update_board(self, board: dict) -> None:
         self._last_board = board
         reqs = board.get("riotRequests")
@@ -583,6 +637,8 @@ class AssistantBanner(tk.Frame):
                                 font=("Segoe UI", 9), anchor="w",
                                 justify="left")
         self.sub_lbl.pack(anchor="w", pady=(4, 0))
+        self.brief_frame = tk.Frame(inner, bg=CARD)
+        self.brief_frame.pack(fill="x", pady=(8, 0))
 
         self._actions = None
 
@@ -595,6 +651,7 @@ class AssistantBanner(tk.Frame):
             self.pack_forget()
             self._visible = False
             return
+        self._clear_brief()
         self._visible = True
         self.pack(fill="x", pady=(6, 0), before=self.master.hero)
         map_name = asst.get("map") or board.get("map") or ""
@@ -611,3 +668,4 @@ class AssistantBanner(tk.Frame):
                 and asst["preferred"] != asst["rec"]:
             bits.append(f"Recommendation from your stats: {asst['rec']}.")
         self.sub_lbl.configure(text=" ".join(bits))
+        self._render_brief(board)

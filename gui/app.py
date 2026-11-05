@@ -628,6 +628,8 @@ class SightwareApp(tk.Tk):
                 state = (board.get("state") or "OFFLINE").upper()
                 delay = {"PREGAME": POLL_PREGAME, "INGAME": POLL_INGAME,
                          "MENUS": POLL_MENUS}.get(state, POLL_IDLE)
+                if state == "INGAME" and                         self.core.all_settings().get("lowImpactInGame", True):
+                    delay = POLL_INGAME + 2.0
             except Exception:
                 self._post_ui(self._poll_error)
                 delay = POLL_IDLE
@@ -719,6 +721,11 @@ class SightwareApp(tk.Tk):
         state = (board.get("state") or "OFFLINE").upper()
         cadence = {"PREGAME": POLL_PREGAME, "INGAME": POLL_INGAME,
                    "MENUS": POLL_MENUS}.get(state, POLL_IDLE)
+        try:
+            if state == "INGAME" and                     self.core.all_settings().get("lowImpactInGame", True):
+                cadence = POLL_INGAME + 2.0
+        except Exception:
+            pass
         self.poll_lbl.configure(text=f"auto-poll {cadence:.0f}s")
         if sig != self._board_sig:
             self._board_sig = sig

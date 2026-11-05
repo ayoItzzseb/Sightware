@@ -35,6 +35,7 @@ DEFAULTS = {
     "lastTab": "",
     "uiTheme": "signal",
     "onboarded": False,
+    "lowImpactInGame": True,
     "lastVersion": "",
 }
 

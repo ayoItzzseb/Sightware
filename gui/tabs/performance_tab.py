@@ -6,8 +6,8 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
-from ..theme import (AMBER, BG, CARD, LINE, ORANGE, RED, TEAL, TEXT, TEXT_DIM,
-                   TEXT_FAINT, WIN, LOSS, mix)
+from ..theme import (AMBER, BG, BG_RAISED, CARD, LINE, ORANGE, RED, TEAL,
+                   TEXT, TEXT_DIM, TEXT_FAINT, WIN, LOSS, mix)
 from ..widgets import (Banner, CalendarHeatmap, DataTable, Column, MiniProgress,
                      RRChart, ScrollFrame, Sparkline, StatCard, section_title)
 
@@ -145,10 +145,65 @@ class PerformanceTab(tk.Frame):
         self.prog_card.pack(fill="x", padx=16, pady=(0, 8))
 
         # RR chart
-        _section_head(body, "match history (RR per game)").pack(
+        section_title(body, "match history (RR per game)").pack(
             anchor="w", padx=16, pady=(12, 4))
         self.chart = RRChart(body)
         self.chart.pack(fill="x", padx=16)
+
+        # ── advanced stats (career deep stats, enriched locally) ──
+        adv = tk.Frame(body, bg=CARD, highlightbackground=LINE,
+                       highlightthickness=1)
+        adv.pack(fill="x", padx=16, pady=(12, 0))
+        tk.Label(adv, text="ADVANCED STATS (CAREER)", bg=CARD, fg=TEXT_FAINT,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14,
+                                                    pady=(10, 4))
+        self.adv_chips = tk.Frame(adv, bg=CARD)
+        self.adv_chips.pack(fill="x", padx=14)
+
+        def adv_chip(label):
+            box = tk.Frame(self.adv_chips, bg=BG_RAISED,
+                           highlightbackground=LINE, highlightthickness=1,
+                           padx=12, pady=7)
+            box.pack(side="left", padx=(0, 8), fill="x", expand=True)
+            v = tk.Label(box, text="—", bg=BG_RAISED, fg=TEXT,
+                         font=("Segoe UI", 13, "bold"))
+            v.pack(anchor="w")
+            tk.Label(box, text=label, bg=BG_RAISED, fg=TEXT_FAINT,
+                     font=("Segoe UI", 7, "bold")).pack(anchor="w")
+            return v
+        self.adv_adr = adv_chip("avg ADR")
+        self.adv_hs = adv_chip("avg HS%")
+        self.adv_fb = adv_chip("first bloods / match")
+        self.adv_fd = adv_chip("first deaths / match")
+        self.adv_mk = adv_chip("multi-kills")
+        self.adv_aces = adv_chip("aces")
+        self.adv_status = tk.Label(adv, text="", bg=CARD, fg=TEXT_FAINT,
+                                   font=("Segoe UI", 8))
+        self.adv_status.pack(anchor="w", padx=14, pady=(8, 2))
+        self.adv_table = DataTable(adv, [
+            Column("date", "Date", 96),
+            Column("agent", "Agent", 90),
+            Column("result", "Result", 84),
+            Column("adr", "ADR", 52, "e"),
+            Column("hsPct", "HS%", 52, "e"),
+            Column("fb", "FB", 40, "e"),
+            Column("fd", "FD", 40, "e"),
+            Column("mk", "MK", 40, "e"),
+            Column("aces", "Aces", 46, "e"),
+        ], height=150, row_h=24)
+        self.adv_table.pack(fill="x", padx=14, pady=(4, 12))
+
+        # ── RR economy by rank ──
+        section_title(body, "rr economy by rank").pack(anchor="w", padx=16,
+                                                      pady=(12, 4))
+        self.econ_table = DataTable(body, [
+            Column("rank", "Rank", 110),
+            Column("games", "Games", 60, "e"),
+            Column("avgWin", "Avg win RR", 90, "e"),
+            Column("avgLoss", "Avg loss RR", 90, "e"),
+            Column("net", "Net RR", 66, "e"),
+        ], height=130, row_h=24)
+        self.econ_table.pack(fill="x", padx=16)
 
         # insights
         self.insights_wrap = tk.Frame(body, bg=BG)
@@ -380,6 +435,9 @@ class PerformanceTab(tk.Frame):
             self.next_wrap.pack_forget()
         self._render_trends(payload)
         self._render_map_picks(payload)
+        self._render_economy(payload)
+        self._render_advanced(payload)
+        self._maybe_enrich(payload)
 
     def _render_projection(self, payload, nxt):
         points = [p for p in (payload.get("points") or []) if p.get("delta") is not None]
@@ -466,6 +524,115 @@ class PerformanceTab(tk.Frame):
             w.writeheader()
             w.writerows(rows)
         self.app.toast.show(f"Exported {len(rows)} matches to CSV.", kind="ok")
+
+    def _render_economy(self, payload: dict) -> None:
+        """RR economy per rank tier: avg win / avg loss / net."""
+        import vconstants
+        buckets = {}
+        for p in (payload.get("points") or []):
+            if not isinstance(p.get("delta"), (int, float)) or p.get("tier") is None:
+                continue
+            b = buckets.setdefault(p["tier"], {"g": 0, "w": 0, "l": 0, "net": 0,
+                                               "win_rr": [], "loss_rr": []})
+            b["g"] += 1
+            d = p["delta"]
+            b["net"] += d
+            if d >= 0:
+                b["w"] += 1
+                b["win_rr"].append(d)
+            else:
+                b["l"] += 1
+                b["loss_rr"].append(d)
+        rows = []
+        for tier in sorted(buckets, reverse=True):
+            b = buckets[tier]
+            rank = vconstants.rank_from_tier(tier)
+            name = rank.get("name", f"Tier {tier}") if isinstance(rank, dict) \
+                else f"Tier {tier}"
+            rows.append({
+                "cells": {
+                    "rank": name,
+                    "games": str(b["g"]),
+                    "avgWin": f"+{round(sum(b['win_rr']) / len(b['win_rr']))}"
+                              if b["win_rr"] else "—",
+                    "avgLoss": str(round(sum(b["loss_rr"]) / len(b["loss_rr"])))
+                               if b["loss_rr"] else "—",
+                    "net": f"{'+' if b['net'] > 0 else ''}{b['net']}",
+                },
+                "colors": {
+                    "net": WIN if b["net"] > 0 else LOSS if b["net"] < 0 else TEXT,
+                },
+            })
+        self.econ_table.set_rows(rows)
+
+    def _render_advanced(self, payload) -> None:
+        import career_stats
+        agg = career_stats.aggregate(payload.get("points") or [])
+        if not agg["matches"]:
+            self.adv_status.configure(
+                text="No deep stats cached yet — enrichment runs while your "
+                     "Riot client is open.", fg=TEXT_FAINT)
+            return
+        self.adv_adr.configure(text=str(agg["avgAdr"] or "—"))
+        self.adv_hs.configure(text=f"{agg['avgHsPct']}%" if agg["avgHsPct"]
+                              is not None else "—")
+        self.adv_fb.configure(text=str(agg["fbPerMatch"] or "—"))
+        self.adv_fd.configure(text=str(agg["fdPerMatch"] or "—"))
+        self.adv_mk.configure(text=str(agg["multiKills"] or 0))
+        self.adv_aces.configure(text=str(agg["aces"] or 0))
+        rows = []
+        for r in reversed(agg["rows"][-12:]):
+            rows.append({
+                "cells": {
+                    "date": _ts(r.get("ts")),
+                    "agent": r.get("agent") or "—",
+                    "result": r.get("result") or "—",
+                    "adr": str(r["adr"]) if r.get("adr") is not None else "—",
+                    "hsPct": f"{r['hsPct']}%" if r.get("hsPct") is not None else "—",
+                    "fb": str(r["firstBloods"]) if r.get("firstBloods") is not None else "—",
+                    "fd": str(r["firstDeaths"]) if r.get("firstDeaths") is not None else "—",
+                    "mk": str(r["multiKills"]) if r.get("multiKills") is not None else "—",
+                    "aces": str(r["aces"]) if r.get("aces") is not None else "—",
+                },
+                "colors": {
+                    "result": WIN if r.get("result") == "Victory"
+                              else LOSS if r.get("result") == "Defeat" else TEXT_DIM,
+                },
+            })
+        self.adv_table.set_rows(rows)
+        self.adv_status.configure(
+            text=f"{agg['matches']} matches with deep stats cached.",
+            fg=TEXT_FAINT)
+
+    def _maybe_enrich(self, payload) -> None:
+        """Opportunistically fetch deep stats for uncached matches while the
+        local client is open. Light: max 10 local-API calls per pass."""
+        if getattr(self, "_enriching", False):
+            return
+        try:
+            if not self.core._live_enabled():
+                self.adv_status.configure(
+                    text="Deep stats enrich while your Riot client is open.",
+                    fg=TEXT_FAINT)
+                return
+        except Exception:
+            return
+        self._enriching = True
+
+        def work():
+            import career_stats
+            return career_stats.enrich(
+                self.core, (payload.get("points") or [])[-25:], limit=10,
+                log=lambda m: self._post_ui(
+                    lambda: self.adv_status.configure(text=m, fg=TEXT_DIM)))
+
+        def done(res):
+            self._enriching = False
+            self._render_advanced(self._last_payload or payload)
+        self.run_bg(work, done, on_error=lambda e: (
+            setattr(self, "_enriching", False),
+            self._post_ui(lambda: self.adv_status.configure(
+                text=f"Enrichment failed: {e.splitlines()[-1]}", fg=LOSS))))
 
     def _render_insights(self, insights: list[dict]) -> None:
         for child in self.insights_wrap.winfo_children():

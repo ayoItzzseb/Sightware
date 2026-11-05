@@ -32,6 +32,10 @@ SETTING_DEFS = [
      "d": "The assistant runs whenever Sightware is running and VALORANT is open."},
     {"key": "rememberAgent", "t": "Remember my preferred agent",
      "d": "Persists the agent you last locked as your default pick."},
+    {"key": "lowImpactInGame", "t": "Game Mode (reduce background work in game)",
+     "d": "While you're in a match, slows background polling to keep FPS "
+          "and ping as clean as possible. The Live Board updates slightly "
+          "less often — everything else is unaffected."},
     {"grp": "Data & privacy", "key": "localHistoryEnabled", "t": "Local history",
      "d": "Encounter log, RR history and session tracking stored in "
           "backend/data/. Turning it off stops all recording."},
@@ -158,6 +162,10 @@ class SettingsDialog(_Dialog):
                                                                  padx=6)
         ttk.Button(btns, text="Check for updates", style="Ghost.TButton",
                    command=self._check_updates).pack(side="right", padx=6)
+        ttk.Button(btns, text="Backup data…", style="Ghost.TButton",
+                   command=self._backup_data).pack(side="right", padx=6)
+        ttk.Button(btns, text="Restore backup…", style="Ghost.TButton",
+                   command=self._restore_data).pack(side="right", padx=6)
         ttk.Button(btns, text="Open data folder", style="Ghost.TButton",
                    command=self._open_data).pack(side="right", padx=6)
         ttk.Button(btns, text="Quit Sightware", style="Danger.TButton",
@@ -263,6 +271,64 @@ class SettingsDialog(_Dialog):
                     "no_repo": "info", "error": "warn"}.get(res["status"], "info")
             self.app.toast.show(res["message"], ms=6000, kind=kind)
         self.app.run_bg(work, done)
+
+    def _backup_data(self) -> None:
+        from tkinter import filedialog
+        import zipfile
+        dest = filedialog.asksaveasfilename(
+            title="Backup Sightware data", defaultextension=".zip",
+            filetypes=[("Data backup", "*.zip")])
+        if not dest:
+            return
+        data_dir = os.path.join(os.path.dirname(os.path.abspath(
+            __file__)), "..", "backend", "data")
+        count = 0
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+            for dirpath, dirnames, filenames in os.walk(data_dir):
+                for fn in filenames:
+                    if fn.endswith(".tmp"):
+                        continue
+                    full = os.path.join(dirpath, fn)
+                    rel = os.path.relpath(full, data_dir)
+                    zf.write(full, "data/" + rel.replace(os.sep, "/"))
+                    count += 1
+        self.app.toast.show(f"Backup saved: {count} files.", kind="ok")
+
+    def _restore_data(self) -> None:
+        from tkinter import filedialog, messagebox
+        import zipfile
+        src = filedialog.askopenfilename(
+            title="Restore Sightware data backup",
+            filetypes=[("Data backup", "*.zip")])
+        if not src:
+            return
+        if not messagebox.askyesno(
+                "Restore backup",
+                "This will overwrite your current settings, history, "
+                "crosshair library and display profiles with the backup "
+                "contents. Continue?"):
+            return
+        data_dir = os.path.join(os.path.dirname(os.path.abspath(
+            __file__)), "..", "backend", "data")
+        count = 0
+        try:
+            with zipfile.ZipFile(src) as zf:
+                for info in zf.infolist():
+                    if info.is_dir():
+                        continue
+                    name = info.filename.replace("\\", "/")
+                    if not name.startswith("data/") or ".." in name:
+                        continue
+                    rel = name[len("data/"):]
+                    dest = os.path.join(data_dir, rel)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with zf.open(info) as fsrc, open(dest, "wb") as fdst:
+                        fdst.write(fsrc.read())
+                    count += 1
+            self.app.toast.show(f"Restored {count} files — restart Sightware "
+                                "to see everything.", kind="ok")
+        except Exception as e:
+            messagebox.showerror("Restore failed", str(e))
 
     def _open_data(self) -> None:
         try:

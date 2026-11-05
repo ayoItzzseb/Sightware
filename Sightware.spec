@@ -18,7 +18,7 @@ a = Analysis(
         "settings", "riot_client", "agents", "vconstants", "sightwarelog",
         # crosshair overlay (flat backend modules)
         "crosshair_store", "crosshair_render", "crosshair_overlay",
-        "crosshair_codes",
+        "crosshair_codes", "career_stats",
         "crosshair_input",
         # chromadesk display engine (flat backend module)
         "display_engine",

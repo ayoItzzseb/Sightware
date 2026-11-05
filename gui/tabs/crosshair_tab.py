@@ -140,6 +140,10 @@ class CrosshairTab(tk.Frame):
         self.status_pill.pack(side="left")
         ttk.Button(top, text="Copy share code", style="Ghost.TButton",
                    command=self._copy_share_code).pack(side="right")
+        ttk.Button(top, text="Save to gallery", style="Ghost.TButton",
+                   command=self._save_to_gallery).pack(side="right", padx=(0, 6))
+        ttk.Button(top, text="Gallery", style="Ghost.TButton",
+                   command=self._open_gallery).pack(side="right", padx=(0, 6))
         ttk.Button(top, text="Paste crosshair code", style="Accent.TButton",
                    command=self._import_code).pack(side="right", padx=(0, 6))
         ttk.Button(top, text="Open data folder", style="Ghost.TButton",
@@ -748,6 +752,182 @@ class CrosshairTab(tk.Frame):
                             + (f", {r['skipped']} skipped" if r["skipped"] else ""),
                             kind="ok")
         self._refresh_library()
+
+    # ── crosshair gallery ──────────────────────────────────────
+    def _gallery_entries(self) -> list[dict]:
+        entries = []
+        try:
+            bundled = json.load(open(
+                os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "..", "pro_gallery.json"), encoding="utf-8"))
+            for e in bundled:
+                e["_user"] = False
+                entries.append(e)
+        except Exception:
+            pass
+        try:
+            user_file = os.path.join(store._BASE, "gallery.json")
+            for e in json.load(open(user_file, encoding="utf-8")):
+                e["_user"] = True
+                entries.append(e)
+        except Exception:
+            pass
+        return entries
+
+    def _save_user_gallery(self, entries):
+        user_file = os.path.join(store._BASE, "gallery.json")
+        os.makedirs(os.path.dirname(user_file), exist_ok=True)
+        with open(user_file, "w", encoding="utf-8") as f:
+            json.dump([e for e in entries if e.get("_user")], f, indent=2)
+
+    def _save_to_gallery(self):
+        name = self._ask_name("Save to gallery", "My crosshair")
+        if not name:
+            return
+        self._gallery_add(name)
+
+    def _gallery_add(self, name: str) -> None:
+        code = xcodes.encode(self._working())
+        if not code:
+            self.app.toast.show("Gallery needs a Cross, Circle or Arc style.",
+                                kind="error")
+            return
+        entries = self._gallery_entries()
+        entries.append({"name": name, "code": code, "source": "you",
+                        "_user": True})
+        self._save_user_gallery(entries)
+        self.app.toast.show(f'"{name}" added to your gallery.', kind="ok")
+
+    def _open_gallery(self):
+        entries = self._gallery_entries()
+        dlg = tk.Toplevel(self)
+        dlg.title("Crosshair gallery")
+        dlg.configure(bg=BG)
+        dlg.transient(self.winfo_toplevel())
+        dlg.grab_set()
+        dlg.geometry("780x560")
+        head = tk.Frame(dlg, bg=BG)
+        head.pack(fill="x", padx=16, pady=(14, 6))
+        tk.Label(head, text="CROSSHAIR GALLERY", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 13, "bold")).pack(side="left")
+        search_var = tk.StringVar()
+        tk.Label(head, text="search ", bg=BG, fg=TEXT_FAINT,
+                 font=("Segoe UI", 8)).pack(side="right")
+        ent = tk.Entry(head, textvariable=search_var, width=22, bd=0,
+                       bg=BG_RAISED, fg=TEXT, insertbackground=RED,
+                       highlightthickness=1, highlightbackground=LINE,
+                       highlightcolor=RED)
+        ent.pack(side="right")
+
+        body = tk.Frame(dlg, bg=BG)
+        body.pack(fill="both", expand=True, padx=16)
+        lb = tk.Listbox(body, bg=BG_RAISED, fg=TEXT, bd=0, width=30,
+                        highlightthickness=1, highlightbackground=LINE,
+                        highlightcolor=RED, selectbackground=RED,
+                        activestyle="none", font=("Segoe UI", 9))
+        lb.pack(side="left", fill="y")
+
+        preview = tk.Frame(body, bg=CARD, highlightbackground=LINE,
+                           highlightthickness=1)
+        preview.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        prev_wrap = tk.Frame(preview, bg=CARD_HI)
+        prev_wrap.pack(fill="both", expand=True, padx=10, pady=(10, 0))
+        info = tk.Label(preview, text="", bg=CARD, fg=TEXT_FAINT,
+                        font=("Segoe UI", 8), wraplength=340, justify="left")
+        info.pack(fill="x", padx=10, pady=6)
+        btns = tk.Frame(preview, bg=CARD)
+        btns.pack(fill="x", padx=10, pady=(0, 10))
+        refs = []
+
+        def current():
+            sel = lb.curselection()
+            if sel and sel[0] < len(filtered):
+                return filtered[sel[0]]
+            return None
+
+        filtered = entries
+
+        def show_preview(e):
+            for w in preview.winfo_children():
+                if w is not prev_wrap and w is not info and w is not btns:
+                    w.destroy()
+            prev_wrap.destroy()
+            prev_wrap = tk.Frame(preview, bg=CARD_HI)
+            prev_wrap.pack(fill="both", expand=True, padx=10, pady=(10, 0))
+            cfg = xcodes.decode(e.get("code", ""))
+            if not cfg:
+                tk.Label(prev_wrap, text="code could not be displayed",
+                         bg=CARD_HI, fg=LOSS).pack(pady=30)
+                return
+            zoom = 3
+            cv = tk.Canvas(prev_wrap, bg=CARD_HI, highlightthickness=0)
+            cv.pack(fill="both", expand=True, padx=6, pady=6)
+            cv._zoom = zoom
+            cv._cfg = cfg
+            refs_local = []
+            render.draw_crosshair(cv, 60, 60, cfg, image_holder=refs_local)
+            # scale up via zoom on the canvas transform
+            cv.scale("all", 0, 0, zoom, zoom)
+            cv.configure(width=120 * zoom, height=120 * zoom)
+
+        def render_list(_e=None):
+            q = search_var.get().casefold()
+            lb.delete(0, "end")
+            for e in entries:
+                if q and q not in e.get("name", "").casefold():
+                    continue
+                lb.insert("end", e.get("name", "?"))
+            if lb.size():
+                lb.selection_set(0)
+            show_sel()
+
+        def show_sel(_e=None):
+            e = current()
+            if e:
+                show_preview(e)
+                info.configure(text="source: " + e.get("source", "—"))
+
+        def use(_e=None):
+            e = current()
+            if not e:
+                return
+            cfg = xcodes.decode(e.get("code", ""))
+            if not cfg:
+                self.app.toast.show("That entry's code could not be parsed.",
+                                    kind="error")
+                return
+            self._load_into_ui(cfg)
+            self.engine.set_crosshair_runtime(cfg)
+            dlg.destroy()
+            self.app.toast.show(f'Loaded "{e.get("name")}" — tune and Apply.',
+                                kind="ok")
+
+        def copy_code(_e=None):
+            e = current()
+            if e:
+                self.clipboard_clear()
+                self.clipboard_append(e["code"])
+                self.app.toast.show("Code copied.", kind="ok")
+
+        def delete(_e=None):
+            e = current()
+            if not e or not e.get("_user"):
+                self.app.toast.show("Built-in entries can't be deleted.",
+                                    kind="warn")
+                return
+            entries.remove(e)
+            self._save_user_gallery(entries)
+            render_list()
+
+        lb.bind("<<ListboxSelect>>", show_sel)
+        search_var.trace_add("write", render_list)
+        ttk.Button(btns, text="Use this crosshair", style="Accent.TButton",
+                   command=use).pack(side="left")
+        ttk.Button(btns, text="Copy code", style="Ghost.TButton",
+                   command=copy_code).pack(side="left", padx=4)
+        ttk.Button(btns, text="Delete", style="Danger.TButton",
+                   command=delete).pack(side="right")
+        render_list()
 
     # ── state helpers ──────────────────────────────────────────
     def _working(self) -> dict:
