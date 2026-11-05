@@ -18,7 +18,7 @@ from tkinter import ttk
 from .theme import (AMBER, BG, BG_RAISED, BLUE, CARD, CARD_HI,
                    GRAD_RULE, LINE, LINE_SOFT, TEAL_DIM,
                    LOSS, ORANGE, RED, RED_SOFT, TEAL, TEXT, TEXT_DIM,
-                   TEXT_FAINT, WIN, alpha_hex, mix, multi_stop, shade)
+                   TEXT_FAINT, WIN, alpha_hex, mix, multi_stop, rgb, shade)
 
 
 # ── pills & cards ──────────────────────────────────────────────
@@ -724,6 +724,7 @@ class CalendarHeatmap(tk.Canvas):
     CELL = 19
     GAP = 4
     PAD_L = 34
+    PAD_T = 18
 
     def __init__(self, master, bg: str = CARD, on_hover=None, height: int = 160,
                  on_click=None):
@@ -802,25 +803,51 @@ class CalendarHeatmap(tk.Canvas):
         skip = max(0, total_cols - cols) * 7 - first_wd if total_cols > cols else 0
         row_labels = ["M", "T", "W", "T", "F", "S", "S"]
         for r, lab in enumerate(row_labels):
-            self.create_text(self.PAD_L - 8, 8 + r * step + self.CELL // 2,
+            self.create_text(self.PAD_L - 8, self.PAD_T + r * step + self.CELL // 2,
                              text=lab, fill=TEXT_FAINT, font=("Segoe UI", 7))
         shown = days[skip:] if skip > 0 else days
         base = first_wd + skip if skip > 0 else first_wd
+        # month labels: drawn above the first column where the month changes
+        prev_month = None
+        if skip > 0:
+            try:
+                prev_month = date.fromisoformat(days[skip - 1]).month
+            except ValueError:
+                prev_month = None
+        months = ("", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
+                  "Aug", "Sep", "Oct", "Nov", "Dec")
         for i, name in enumerate(shown):
             slot = base + i
             col, row = divmod(slot, 7)
             x = self.PAD_L + col * step
-            y = 8 + row * step
+            y = self.PAD_T + row * step
             if x + self.CELL > w or y + self.CELL > h:
                 continue
             day = self._days[name]
+            try:
+                this_month = date.fromisoformat(name).month
+            except ValueError:
+                this_month = None
+            if row == 0 and this_month and this_month != prev_month:
+                self.create_text(x + self.CELL / 2, self.PAD_T - 9,
+                                 text=months[this_month], fill=TEXT_DIM,
+                                 font=("Segoe UI", 7, "bold"))
+            prev_month = this_month
             self.create_rectangle(x, y, x + self.CELL, y + self.CELL,
                                   fill=self._cell_color(day), outline="",
                                   tags=("day", name))
+            # day-of-month number, contrast-adjusted
+            day_num = name[-2:].lstrip("0")
+            r8, g8, b8 = rgb(self._cell_color(day))
+            lum = (0.2126 * r8 + 0.7152 * g8 + 0.0722 * b8) / 255
+            num_col = "#0B0D12" if lum > 0.55 else "#F5F7FA"
+            self.create_text(x + self.CELL / 2, y + self.CELL - 5,
+                             text=day_num, fill=num_col,
+                             font=("Segoe UI", 7, "bold"))
             if self._hovered and day.get("name") == self._hovered:
-                cv.create_rectangle(x - 2, y - 2, x + self.CELL + 2,
-                                    y + self.CELL + 2,
-                                    outline=TEXT, width=1)
+                self.create_rectangle(x - 2, y - 2, x + self.CELL + 2,
+                                      y + self.CELL + 2,
+                                      outline=TEXT, width=1)
             self._cells.append((x, y, day))
         self.configure(scrollregion=(0, 0, w, h))
 
@@ -1367,6 +1394,10 @@ class Sparkline(tk.Canvas):
         up = vals[-1] >= vals[0]
         line_color = self._color if self._color != RED else (WIN if up else LOSS)
         self.create_line(*pts, fill=line_color, width=2, smooth=True)
-        # last-point marker
+        # last-point marker + value
         self.create_oval(pts[-2] - 3, pts[-1] - 3, pts[-2] + 3, pts[-1] + 3,
                          fill=line_color, outline="")
+        last = vals[-1]
+        txt = f"{last:g}" if abs(last) < 100 else f"{last:.0f}"
+        self.create_text(w - 3, 4, text=txt, anchor="ne", fill=TEXT_DIM,
+                         font=("Segoe UI", 8, "bold"))

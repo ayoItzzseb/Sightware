@@ -157,7 +157,7 @@ class PerformanceTab(tk.Frame):
                  bg=CARD, fg=TEXT_FAINT,
                  font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=14,
                                                     pady=(10, 4))
-        self.heatmap = CalendarHeatmap(cal, height=170,
+        self.heatmap = CalendarHeatmap(cal, height=186,
                                        on_click=self._open_day)
         self.heatmap.pack(fill="x", padx=14)
         legend = tk.Frame(cal, bg=CARD)
