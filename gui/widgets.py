@@ -1196,29 +1196,37 @@ class ScrollFrame(tk.Frame):
         self.canvas.bind_all("<MouseWheel>", self._on_wheel, add="+")
         self.inner.bind("<Enter>", lambda e: self._active(True))
         self.inner.bind("<Leave>", lambda e: self._active(False))
+        self._bind_wheel_recursive(self.inner)
 
     def _active(self, on: bool) -> None:
         self._over = on
 
     def _on_inner_configure(self, _e) -> None:
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self._bind_wheel_recursive(self.inner)
 
     def _on_canvas_configure(self, e) -> None:
         self.canvas.itemconfigure(self._win, width=e.width)
 
     def _on_wheel(self, evt) -> None:
+        """Scroll when the pointer is inside this ScrollFrame's bounds."""
         try:
-            under = self.winfo_containing(
-                self.winfo_pointerx(), self.winfo_pointery())
-        except Exception:
-            return
-        node = under
-        while node is not None:
-            if node is self.canvas:
-                self.canvas.yview_scroll(
-                    -3 if getattr(evt, "delta", 0) > 0 else 3, "units")
+            px, py = self.winfo_pointerx(), self.winfo_pointery()
+            wx, wy = self.winfo_rootx(), self.winfo_rooty()
+            ww, wh = self.winfo_width(), self.winfo_height()
+            if not (wx <= px <= wx + ww and wy <= py <= wy + wh):
                 return
-            node = node.master if hasattr(node, "master") else None
+            delta = getattr(evt, "delta", 0)
+            self.canvas.yview_scroll(-3 if delta > 0 else 3, "units")
+        except Exception:
+            pass
+
+    def _bind_wheel_recursive(self, widget) -> None:
+        """Force-bind MouseWheel on every descendant so no child class
+        binding can block scrolling."""
+        widget.bind("<MouseWheel>", self._on_wheel, add="+")
+        for child in widget.winfo_children():
+            self._bind_wheel_recursive(child)
 
 
 class BusyDots:
