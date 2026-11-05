@@ -10,7 +10,8 @@ from tkinter import ttk
 
 from .theme import (AMBER, BG, BG_RAISED, CARD, LINE, LOSS, ORANGE, PURPLE, RED,
                    readable, RED_SOFT, TEAL, TEXT, TEXT_DIM, TEXT_FAINT, WIN, mix)
-from .widgets import (DataTable, Column, ScrollFrame, Switch, section_title)
+from .widgets import (DataTable, Column, ScrollFrame, Switch, section_head,
+                     section_title)
 
 from agents import AGENTS
 from vconstants import MAPS
@@ -381,7 +382,14 @@ class MatchDetailDialog(_Dialog):
                 tk.Label(self, text=data["error"], bg=BG, fg=LOSS,
                          font=("Segoe UI", 10)).pack(pady=20)
                 return
-            self._render(data)
+            try:
+                self._render(data)
+            except Exception:
+                import traceback
+                err = traceback.format_exc()
+                tk.Label(self, text="Render error: " + err.splitlines()[-1],
+                         bg=BG, fg=LOSS, font=("Segoe UI", 9),
+                         wraplength=800).pack(pady=20)
         app.run_bg(work, done, on_error=lambda e: (loading.destroy(),
                      tk.Label(self, text=f"Failed: {e.splitlines()[-1]}",
                               bg=BG, fg=LOSS).pack(pady=20)))

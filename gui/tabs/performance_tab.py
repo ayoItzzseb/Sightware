@@ -9,22 +9,10 @@ from tkinter import ttk
 from ..theme import (AMBER, BG, BG_RAISED, CARD, LINE, ORANGE, RED, TEAL,
                    TEXT, TEXT_DIM, TEXT_FAINT, WIN, LOSS, mix)
 from ..widgets import (Banner, CalendarHeatmap, DataTable, Column, MiniProgress,
-                     RRChart, ScrollFrame, Sparkline, StatCard, section_title)
+                     RRChart, ScrollFrame, Sparkline, StatCard, section_head, section_title)
 
 from ..dialogs import MatchDetailDialog, PlayerProfileDialog
 
-
-def _section_head(parent, text: str, bg=None):
-    """Section header: orange accent bar + uppercase title."""
-    try:
-        bg = bg or parent.cget("bg")
-    except Exception:
-        bg = BG
-    head = tk.Frame(parent, bg=bg)
-    tk.Frame(head, bg=RED, width=3).pack(side="left", fill="y", padx=(0, 8))
-    tk.Label(head, text=text.upper(), bg=bg, fg=TEXT,
-             font=("Segoe UI", 10, "bold")).pack(side="left")
-    return head
 
 
 def _ts(ts) -> str:
@@ -81,7 +69,7 @@ class PerformanceTab(tk.Frame):
         ov = tk.Frame(body, bg=CARD, highlightbackground=LINE,
                       highlightthickness=1)
         ov.pack(fill="x", padx=16, pady=(10, 8))
-        _section_head(ov, "overview", bg=CARD).pack(anchor="w", padx=14,
+        section_head(ov, "overview", bg=CARD).pack(anchor="w", padx=14,
                                                     pady=(12, 4))
         # hero: current rank + RR + progress to next
         hero = tk.Frame(ov, bg=CARD)
@@ -216,7 +204,7 @@ class PerformanceTab(tk.Frame):
         left.pack(side="left", fill="both", expand=True, padx=(0, 8))
         right = tk.Frame(splits, bg=BG)
         right.pack(side="left", fill="both", expand=True, padx=(8, 0))
-        _section_head(left, "by agent").pack(anchor="w", pady=(0, 4))
+        section_head(left, "by agent").pack(anchor="w", pady=(0, 4))
         self.agent_table = DataTable(left, [
             Column("name", "Agent", 110),
             Column("games", "Games", 60, "e"),
@@ -226,7 +214,7 @@ class PerformanceTab(tk.Frame):
             Column("avgAcs", "ACS", 56, "e"),
         ], height=170, row_h=26)
         self.agent_table.pack(fill="x")
-        _section_head(right, "by map").pack(anchor="w", pady=(0, 4))
+        section_head(right, "by map").pack(anchor="w", pady=(0, 4))
         self.map_table = DataTable(right, [
             Column("name", "Map", 110),
             Column("games", "Games", 60, "e"),
@@ -241,7 +229,7 @@ class PerformanceTab(tk.Frame):
                        highlightthickness=1)
         cal.pack(fill="x", padx=16, pady=(12, 0),
                  before=self.adv_frame)
-        _section_head(cal, "play calendar — click a day for every match",
+        section_head(cal, "play calendar — click a day for every match",
                       bg=CARD).pack(anchor="w", padx=14, pady=(12, 4))
         nav = tk.Frame(cal, bg=CARD)
         nav.pack(fill="x", padx=14, pady=(0, 4))
@@ -275,7 +263,7 @@ class PerformanceTab(tk.Frame):
             self.heatmap.set_month(months_avail[-1])
         self._refresh_month_nav()
 
-        _section_head(body, "schedule").pack(anchor="w", padx=16, pady=(12, 4))
+        section_head(body, "schedule").pack(anchor="w", padx=16, pady=(12, 4))
         self.schedule_table = DataTable(body, [
             Column("name", "When", 110),
             Column("games", "Games", 70, "e"),
@@ -286,7 +274,7 @@ class PerformanceTab(tk.Frame):
         self.schedule_table.pack(fill="x", padx=16)
 
         # rank changes
-        _section_head(body, "rank changes").pack(anchor="w", padx=16,
+        section_head(body, "rank changes").pack(anchor="w", padx=16,
                                                  pady=(12, 4))
         self.changes_table = DataTable(body, [
             Column("ts", "Date", 110),
@@ -299,7 +287,7 @@ class PerformanceTab(tk.Frame):
         # match list
         match_head = tk.Frame(body, bg=BG)
         match_head.pack(fill="x", padx=16, pady=(12, 4))
-        _section_head(match_head, "matches").pack(side="left")
+        section_head(match_head, "matches").pack(side="left")
         ttk.Button(match_head, text="Export CSV", style="Ghost.TButton",
                    command=self._export_matches_csv).pack(side="right")
         tk.Label(match_head, text="click a row for the full match report",
@@ -641,7 +629,7 @@ class PerformanceTab(tk.Frame):
             child.destroy()
         if not insights:
             return
-        _section_head(self.insights_wrap, "insights").pack(anchor="w",
+        section_head(self.insights_wrap, "insights").pack(anchor="w",
                                                            pady=(0, 4))
         for ins in insights[:6]:
             tone = ins.get("tone", "neutral")

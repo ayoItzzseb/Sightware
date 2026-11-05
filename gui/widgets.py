@@ -1484,3 +1484,16 @@ class Sparkline(tk.Canvas):
         txt = f"{last:g}" if abs(last) < 100 else f"{last:.0f}"
         self.create_text(w - 3, 4, text=txt, anchor="ne", fill=TEXT_DIM,
                          font=("Segoe UI", 8, "bold"))
+
+
+def section_head(parent, text: str, bg: str | None = None):
+    """Section header: orange accent bar + uppercase title."""
+    try:
+        bg = bg or parent.cget("bg")
+    except Exception:
+        bg = BG
+    head = tk.Frame(parent, bg=bg)
+    tk.Frame(head, bg=RED, width=3).pack(side="left", fill="y", padx=(0, 8))
+    tk.Label(head, text=text.upper(), bg=bg, fg=TEXT,
+             font=("Segoe UI", 10, "bold")).pack(side="left")
+    return head
