@@ -65,21 +65,15 @@ class SightwareApp(tk.Tk):
         super().__init__()
         self.title("Sightware")
         self.configure(background=BG)
-        self.geometry("1280x820")
         self.minsize(1080, 660)
+        # always start maximized for the full dashboard experience
+        self.state("zoomed")
 
         # core first: window restore and the art cache both read settings
         self.core = AppCore()
         self._fonts = apply(self)
         self._apply_window_icon()
         self._dark_title_bar()
-        saved_geom = ""
-        try:
-            saved_geom = str(self.core.all_settings().get("windowGeometry") or "")
-        except Exception:
-            saved_geom = ""
-        if saved_geom:
-            self.geometry(saved_geom)
 
         self.toast = Toast(self)
         # Worker threads never touch tkinter directly: they push closures
@@ -345,12 +339,12 @@ class SightwareApp(tk.Tk):
         self._tabs = {}
         # centered content column like the web dashboard
         self.column = tk.Frame(self.content, bg=BG)
-        self.column.place(relx=0.5, rely=0, anchor="n", width=1160,
+        self.column.place(relx=0.5, rely=0, anchor="n", width=1600,
                           relheight=1)
 
         def _fit_column(e, col=self.column):
-            # never wider than the visible area (sidebar already subtracted)
-            col.place_configure(width=max(720, min(1160, e.width - 28)))
+            # fill the available space between sidebar edges with padding
+            col.place_configure(width=max(720, min(1800, e.width - 36)))
         self.content.bind("<Configure>", _fit_column, add="+")
 
     def _toggle_sidebar(self) -> None:
@@ -934,11 +928,7 @@ class SightwareApp(tk.Tk):
         except Exception:
             pass
         try:
-            geom = f"{self.winfo_width()}x{self.winfo_height()}"
-            self.core.update_settings({
-                "windowGeometry": geom,
-                "lastTab": self._active or "",
-            })
+            self.core.update_settings({"lastTab": self._active or ""})
         except Exception:
             pass
         self.core.stop_services()
