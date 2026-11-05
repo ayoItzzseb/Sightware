@@ -7,11 +7,17 @@ windows themselves are owned by backend.crosshair_overlay.OverlayEngine.
 """
 from __future__ import annotations
 
+import json
+import os
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
 import crosshair_codes as xcodes
+
+_GALLERY_BUNDLED = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'pro_gallery.json')
 import crosshair_render as render
 import crosshair_store as store
 from ..theme import (AMBER, BG, BG_RAISED, CARD, CARD_HI, LINE, RED, RED_SOFT,
@@ -757,9 +763,7 @@ class CrosshairTab(tk.Frame):
     def _gallery_entries(self) -> list[dict]:
         entries = []
         try:
-            bundled = json.load(open(
-                os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "..", "pro_gallery.json"), encoding="utf-8"))
+            bundled = json.load(open(_GALLERY_BUNDLED, encoding="utf-8"))
             for e in bundled:
                 e["_user"] = False
                 entries.append(e)
