@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest a new feature or improvement for Sightware
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to do that Sightware can't do today (or does badly)?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should it look like or behave like? Rough sketches are fine.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      options:
+        - Live Board
+        - Performance
+        - Encounters
+        - Sessions
+        - Collection / Inventory
+        - Crosshair (editor)
+        - Crosshair (overlay)
+        - Display / ChromaDesk
+        - Launcher / startup
+        - Other / new area
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints acknowledgment
+      options:
+        - label: I understand Sightware is local-only and read-only toward the Riot client — the feature should keep that
+        - label: I'm okay with this feature possibly needing a new dependency (or would prefer one isn't added)

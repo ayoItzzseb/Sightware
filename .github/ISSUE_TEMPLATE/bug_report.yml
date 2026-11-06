@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in Sightware is broken or behaving wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Fill in what you can — a screenshot and
+        your Windows/Python versions are the two most useful things here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect to happen instead?
+      placeholder: Clicked X, expected Y, got Z.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Live Board
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      options:
+        - Live Board
+        - Performance
+        - Encounters
+        - Sessions
+        - Collection / Inventory
+        - Crosshair (editor)
+        - Crosshair (overlay)
+        - Display / ChromaDesk
+        - Launcher / startup
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        - Windows version:
+        - Python version:
+        - Sightware version (see VERSION or title bar):
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Console output if you ran `python run.py`, screenshots of the wrong behavior.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I ran Sightware with `python run.py` (not only `pythonw`) and captured any error output
+        - label: I am on the latest version of the repo
