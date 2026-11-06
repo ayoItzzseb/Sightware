@@ -888,7 +888,7 @@ class SightwareApp(tk.Tk):
         def end_and_quit():
             try:
                 import session_tracker
-                session_tracker.end()
+                session_tracker.end_active()
             except Exception:
                 pass
             dlg.destroy()
@@ -911,10 +911,13 @@ class SightwareApp(tk.Tk):
         if self._shutting:
             self.destroy()
             return
-        # active session? show a recap before shutting down
+        # active session? show a recap before shutting down. Gated on an
+        # actually-active session — a stale match recap alone shouldn't
+        # block quitting.
         try:
             import session_tracker
-            recap = session_tracker.current_recap()
+            recap = (session_tracker.current_recap()
+                     if session_tracker.any_active_session() else None)
         except Exception:
             recap = None
         if recap:

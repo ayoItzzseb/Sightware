@@ -187,6 +187,25 @@ def ensure_active(puuid: str | None, baseline: dict | None = None) -> dict:
     return start(puuid, None, baseline)
 
 
+def end_active() -> dict:
+    """End the current account's active session (quit-time path)."""
+    owner = _STATE.get("active_puuid")
+    if not owner:
+        # app may have restarted mid-session before any poll ran
+        with _LOCK:
+            for puuid, acc in _STORE.get("accounts", {}).items():
+                if acc.get("active") is not None:
+                    owner = puuid
+                    break
+    return end(owner)
+
+
+def any_active_session() -> bool:
+    with _LOCK:
+        return any((acc.get("active") is not None)
+                   for acc in _STORE.get("accounts", {}).values())
+
+
 def end(puuid: str | None) -> dict:
     if not puuid:
         return {"ok": False, "message": "No Riot account is active."}
