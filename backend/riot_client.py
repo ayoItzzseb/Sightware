@@ -5,6 +5,7 @@ import json
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import requests
@@ -572,22 +573,28 @@ class RiotClient:
             return None
         hist = auth.pd_get(f"/match-history/v1/history/{puuid}?startIndex=0&endIndex=20")
         entries = (hist or {}).get("History", []) if isinstance(hist, dict) else []
-        matches = []
-        for h in entries[:20]:
-            mid = h.get("MatchID")
-            if not mid:
-                continue
+        mids = [h.get("MatchID") for h in entries[:20] if h.get("MatchID")]
+
+        def fetch_detail(mid):
             try:
                 details = auth.pd_get(f"/match-details/v1/matches/{mid}")
                 if isinstance(details, dict) and "players" in details:
-                    norm = self._normalize_match(details, puuid)
-                    if norm:
-                        matches.append(norm)
+                    return self._normalize_match(details, puuid)
             except Exception as e:
                 _log(f"match detail fetch failed: {e}")
+            return None
+
+        # parallel like live_match.player_career — 20 serial round-trips
+        # made every profile open take seconds
+        matches = []
+        if mids:
+            with ThreadPoolExecutor(max_workers=min(4, len(mids))) as ex:
+                for norm in ex.map(fetch_detail, mids):
+                    if norm:
+                        matches.append(norm)
         if not matches:
             return None
-        tier, rr = self._local_rank(puuid, matches)
+        tier, rr = self._local_rank(auth, puuid, matches)
         return {
             "puuid": puuid,
             "riotId": self._local_name(auth, puuid),
@@ -609,10 +616,8 @@ class RiotClient:
             pass
         return "You"
 
-    def _local_rank(self, puuid: str, matches):
+    def _local_rank(self, auth: LocalAuth, puuid: str, matches):
         try:
-            auth = LocalAuth()
-            auth.headers()
             updates = auth.pd_get(
                 f"/mmr/v1/players/{puuid}/competitiveupdates"
                 f"?startIndex=0&endIndex=1&queue=competitive")

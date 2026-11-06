@@ -11,9 +11,9 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from ..theme import (AMBER, BG, CARD, LINE, LINE_SOFT, ORANGE, RED, RED_SOFT,
-                   TEAL, TEAL_DIM, TEXT, TEXT_DIM, TEXT_FAINT, WIN, LOSS,
-                   mix, multi_stop, readable)
+from ..theme import (AMBER, BG, BG_RAISED, CARD, LINE, LINE_SOFT, ORANGE, RED,
+                   RED_SOFT, TEAL, TEAL_DIM, TEXT, TEXT_DIM, TEXT_FAINT, WIN,
+                   LOSS, mix, multi_stop, readable)
 from ..widgets import (Banner, DataTable, Column, ScrollFrame, cover_crop)
 
 from agents import AGENTS

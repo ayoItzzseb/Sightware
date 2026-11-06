@@ -64,12 +64,12 @@ for _i in range(24):
     VK_NAMES[0x70 + _i] = f"F{_i + 1}"
 SCAN_VKS = sorted(set(VK_NAMES) | set(MOUSE_VKS) | set(VK_MODIFIERS))
 
-# XInput
+# XInput — XUSB_GAMEPAD_* button masks
 XINPUT_GAMEPAD = {
-    0x0100: "GP UP", 0x0200: "GP DOWN", 0x0400: "GP LEFT", 0x0800: "GP RIGHT",
+    0x0001: "GP UP", 0x0002: "GP DOWN", 0x0004: "GP LEFT", 0x0008: "GP RIGHT",
     0x0010: "GP START", 0x0020: "GP BACK", 0x0040: "GP L3", 0x0080: "GP R3",
-    0x1000: "GP LB", 0x2000: "GP RB",
-    0x4000: "GP A", 0x8000: "GP B", 0x100: "GP X", 0x200: "GP Y",
+    0x0100: "GP LB", 0x0200: "GP RB",
+    0x1000: "GP A", 0x2000: "GP B", 0x4000: "GP X", 0x8000: "GP Y",
 }
 TRIGGERS = {"GP LT": 0, "GP RT": 1}
 

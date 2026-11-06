@@ -20,6 +20,7 @@ _STATUS: dict = {
     "state": None,
     "map": None,
     "preferred": None,
+    "rec": None,
     "notice": "",
 }
 
@@ -45,6 +46,7 @@ def snapshot_for_board() -> dict:
             "state": st["state"],
             "map": st["map"],
             "preferred": st["preferred"],
+            "rec": st["rec"],
             "preferredMeta": (resolve_agent(st["preferred"]) or {}),
             "notice": st["notice"],
         }

@@ -171,6 +171,7 @@ def start(puuid: str | None, goal: object = None, baseline: dict | None = None) 
         account["active"] = session
         _STATE["generation"] += 1
         _STATE["recorded"] = set()
+        _STATE["suppress_auto"] = None
         _save()
         return {"ok": True, "message": "Session started.", "session": _session_view(session)}
 
@@ -201,6 +202,9 @@ def end(puuid: str | None) -> dict:
         account["archive"] = account["archive"][-_MAX_ARCHIVE:]
         account["active"] = None
         _STATE["generation"] += 1
+        # user ended this session explicitly: don't let attach() resurrect it
+        # on the next poll until they start a new one from the UI.
+        _STATE["suppress_auto"] = str(puuid)
         _save()
         return {"ok": True, "message": "Session ended.", "session": _session_view(current)}
 
@@ -424,7 +428,7 @@ def attach(board: dict) -> dict:
     if recap and board.get("state") == "MENUS":
         board["recap"] = recap
     owner = board.get("selfPuuid") or _STATE.get("active_puuid")
-    if owner:
+    if owner and _STATE.get("suppress_auto") != str(owner):
         try:
             existing = list_for(owner)
             if not existing.get("active"):

@@ -613,6 +613,7 @@ class PerformanceTab(tk.Frame):
             import career_stats
             return career_stats.enrich(
                 self.core, (payload.get("points") or [])[-25:], limit=10,
+                self_puuid=self.core._current_puuid(),
                 log=lambda m: self.app._post_ui(
                     lambda: self.adv_status.configure(text=m, fg=TEXT_DIM)))
 

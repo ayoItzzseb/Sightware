@@ -1224,8 +1224,12 @@ class ScrollFrame(tk.Frame):
 
     def _bind_wheel_recursive(self, widget) -> None:
         """Force-bind MouseWheel on every descendant so no child class
-        binding can block scrolling."""
-        widget.bind("<MouseWheel>", self._on_wheel, add="+")
+        binding can block scrolling. Binds each widget only once — this
+        runs on every inner <Configure>, so re-binding unguarded would
+        stack handlers on every resize."""
+        if not getattr(widget, "_wheel_bound", False):
+            widget.bind("<MouseWheel>", self._on_wheel, add="+")
+            widget._wheel_bound = True
         for child in widget.winfo_children():
             self._bind_wheel_recursive(child)
 

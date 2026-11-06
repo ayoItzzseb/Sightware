@@ -281,8 +281,7 @@ class SettingsDialog(_Dialog):
             filetypes=[("Data backup", "*.zip")])
         if not dest:
             return
-        data_dir = os.path.join(os.path.dirname(os.path.abspath(
-            __file__)), "..", "backend", "data")
+        data_dir = str(DATA_DIR)
         count = 0
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             for dirpath, dirnames, filenames in os.walk(data_dir):
@@ -309,8 +308,7 @@ class SettingsDialog(_Dialog):
                 "crosshair library and display profiles with the backup "
                 "contents. Continue?"):
             return
-        data_dir = os.path.join(os.path.dirname(os.path.abspath(
-            __file__)), "..", "backend", "data")
+        data_dir = str(DATA_DIR)
         count = 0
         try:
             with zipfile.ZipFile(src) as zf:

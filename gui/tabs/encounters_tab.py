@@ -6,8 +6,8 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
-from ..theme import (AMBER, BG, CARD, ORANGE, TEAL, TEXT, TEXT_DIM, TEXT_FAINT,
-                   WIN, LOSS)
+from ..theme import (AMBER, BG, BG_RAISED, CARD, ORANGE, RED, TEAL, TEXT,
+                   TEXT_DIM, TEXT_FAINT, WIN, LOSS)
 from ..widgets import (DataTable, Column, ScrollFrame, StatCard, section_title)
 
 
@@ -185,10 +185,13 @@ class EncountersTab(tk.Frame):
                 "data": {"puuid": p.get("puuid"), "name": p.get("name")},
             })
         self.table.set_rows(rows)
+        self._players = players
         if not players:
             self.loading.configure(
                 text="No encounters recorded yet — they build up while you play "
                      "with Local history enabled.", fg=TEXT_DIM)
+        else:
+            self.loading.configure(text="", fg=TEXT_DIM)
 
     def _open_player(self, data: dict) -> None:
         if data.get("puuid"):
@@ -196,24 +199,14 @@ class EncountersTab(tk.Frame):
 
     # ── notes + csv ────────────────────────────────────────────
     def _selected_player(self):
-        sel = self.table.curselection()
-        row = self.table.row_at(sel[0]) if hasattr(self.table, "row_at") else None
-        return row
+        rows = self.table.rows()
+        idx = getattr(self.table, "_sel", None)
+        if idx is None or not (0 <= idx < len(rows)):
+            return None
+        return rows[idx]
 
     def _edit_note(self):
-        # find selected row via DataTable's selection API
-        try:
-            idx = self.table._sel  # private fallback
-        except AttributeError:
-            idx = None
-        row = None
-        getter = getattr(self.table, "selected_row", None) \
-            or getattr(self.table, "row_at", None)
-        if getter:
-            try:
-                row = getter(sel[0]) if (sel := self.table.curselection()) else None
-            except Exception:
-                row = None
+        row = self._selected_player()
         if not row:
             self.app.toast.show("Select a player row first.", kind="warn")
             return
@@ -251,7 +244,6 @@ class EncountersTab(tk.Frame):
         import csv as csvmod
         notes = _load_notes()
         players = getattr(self, "_players", []) or []
-        notes = _load_notes()
         rows = []
         for p in players:
             key = (p.get("puuid") or p.get("name") or "").lower()
@@ -259,7 +251,7 @@ class EncountersTab(tk.Frame):
                 "name": p.get("name") or "",
                 "agent": p.get("topAgent") or p.get("agent") or "",
                 "withGames": p.get("withCount") or 0,
-                "withWl": f"{p.get('withWins', 0)}-{p.get('withLosses', 0)}",
+                "withWl": f"{p.get('winsWith', 0)}-{p.get('lossesWith', 0)}",
                 "againstGames": p.get("againstCount") or 0,
                 "rank": p.get("rank") or "",
                 "lastSeen": p.get("lastSeen") or "",
