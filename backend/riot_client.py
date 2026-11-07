@@ -204,8 +204,13 @@ class LocalAuth:
                 if ".a.pvp.net/account-xp/v1/" in line:
                     pd_url = line.split(".a.pvp.net/account-xp/v1/")[0].split(".")[-1]
                 elif "https://glz" in line:
-                    glz_url = [line.split("https://glz-")[1].split(".")[0],
-                               line.split("https://glz-")[1].split(".")[1]]
+                    # the game appends to this log while running — a partial
+                    # line can contain "https://glz" without the dash
+                    try:
+                        rest = line.split("https://glz-")[1]
+                        glz_url = [rest.split(".")[0], rest.split(".")[1]]
+                    except (IndexError, ValueError):
+                        continue
                 if pd_url and glz_url:
                     if pd_url == "pbe":
                         return ["na", ["na-1", "na"]]
@@ -387,6 +392,9 @@ def own_party_members(auth: LocalAuth) -> list[dict]:
         party = auth.glz_get(f"/parties/v1/parties/{pid}") if pid else {"Members": []}
     except Exception:
         party = None
+        # don't stamp the cache timestamp on failure — the next poll
+        # retries instead of serving stale members for 5 s
+        return _OWN_PARTY["members"]
     members = party.get("Members") if isinstance(party, dict) else None
     if isinstance(members, list):
         _OWN_PARTY["members"] = [m for m in members if isinstance(m, dict) and m.get("Subject")]

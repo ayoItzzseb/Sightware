@@ -17,7 +17,7 @@ from .theme import (AMBER, BG, BG_RAISED, CARD, CARD_HI, GRAD_HEADER,
                    apply, mix, multi_stop, shade)
 from .widgets import AccentRule, GradientFrame, Pill, Toast
 
-from .core import AppCore
+from .core import AppCore, LOG
 from .queue_monitor import QueueMonitor
 from .widgets import ImageCache
 from .tabs.live_tab import LiveTab
@@ -168,6 +168,14 @@ class SightwareApp(tk.Tk):
                         setattr(mod, n, getattr(theme, n))
         theme.apply(self)
         # rebuild chrome + tabs so every canvas/label picks up the new accent
+        eng = getattr(self, "crosshair_engine", None)
+        if eng is not None:
+            # stale callbacks point into frames we're about to destroy; the
+            # next engine tick would raise TclError and kill the whitelist
+            # poller until the crosshair tab is reopened
+            for attr in ("on_status", "on_crosshair_changed", "on_capture_done"):
+                if hasattr(eng, attr):
+                    setattr(eng, attr, None)
         active = self._active or "live"
         for frame in list(self._tabs.values()):
             try:
@@ -193,11 +201,6 @@ class SightwareApp(tk.Tk):
                    ("Settings", self.open_settings),
                    ("Refresh now", self.force_refresh),
                    ("Toggle sidebar", self._toggle_sidebar)]
-        try:
-            for slot in self.core.all_settings().get("crosshairQuickloadHotkeys", []):
-                pass
-        except Exception:
-            pass
         for preset in [p["name"] for p in _library_names()]:
             actions.append((f"Load crosshair: {preset}",
                             lambda n=preset: self._palette_load_crosshair(n)))
@@ -695,9 +698,7 @@ class SightwareApp(tk.Tk):
         if self._shutting:
             return
         self._check_state_transition(board)
-        sig = json.dumps(board, default=str, sort_keys=True)
         volatile = {"riotRequests", "appVersion"}
-        # recompute signature without volatile keys (cheap enough at these sizes)
         trimmed = {k: v for k, v in board.items() if k not in volatile}
         sig = json.dumps(trimmed, default=str, sort_keys=True)
         source = board.get("source", "demo")
@@ -742,15 +743,17 @@ class SightwareApp(tk.Tk):
     def _drain_ui_queue(self) -> None:
         if self._shutting:
             return
-        try:
-            while True:
+        while True:
+            try:
                 fn = self._ui_q.get_nowait()
-                try:
-                    fn()
-                except Exception:
-                    traceback.print_exc(limit=3)
-        except queue.Empty:
-            pass
+            except queue.Empty:
+                break
+            try:
+                fn()
+            except Exception:
+                # stderr is None under pythonw — print_exc would raise
+                # AttributeError here and kill this loop's reschedule
+                LOG.exception("UI callback failed")
         self.after(80, self._drain_ui_queue)
 
     # ── updates ────────────────────────────────────────────────
@@ -825,8 +828,19 @@ class SightwareApp(tk.Tk):
         try:
             upd.restart_app()
         except Exception as e:
-            self.toast.show(f"Installed, but auto-restart failed: {e} — "
-                            "start Sightware manually.", kind="error")
+            # the root window is destroyed by now — toast would raise TclError
+            LOG.exception("auto-restart failed after update")
+            try:
+                from tkinter import messagebox
+                r = tk.Tk()
+                r.withdraw()
+                messagebox.showerror(
+                    "Sightware update",
+                    f"Installed, but auto-restart failed: {e}\n"
+                    "Start Sightware manually.")
+                r.destroy()
+            except Exception:
+                pass
 
     def run_bg(self, fn, on_done, on_error=None) -> None:
         def work():

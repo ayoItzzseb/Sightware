@@ -52,7 +52,12 @@ def get_all(puuid: str | None) -> dict:
 
 
 def get_one(puuid: str | None, match_id: str) -> dict:
-    return get_all(puuid).get(match_id, {"note": "", "tags": [], "bookmarked": False})
+    default = {"note": "", "tags": [], "bookmarked": False}
+    if not puuid or not match_id:
+        return default
+    with _LOCK:
+        return dict(_STORE.setdefault("accounts", {}).get(str(puuid), {})
+                    .get(match_id, default))
 
 
 def update(puuid: str | None, match_id: str, payload: object) -> dict:

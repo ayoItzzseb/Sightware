@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 
 import requests
@@ -18,10 +19,12 @@ WEAPON_UUIDS = {
 _cache: dict = {}
 _failed_at: dict = {}
 _RETRY_SECS = 60.0
+_lock = threading.Lock()
 
 def _get(path: str):
-    if path in _cache:
-        return _cache[path]
+    with _lock:
+        if path in _cache:
+            return _cache[path]
     if time.time() - _failed_at.get(path, 0.0) < _RETRY_SECS:
         return None
     try:
@@ -31,7 +34,8 @@ def _get(path: str):
     except Exception:
         data = None
     if data:
-        _cache[path] = data
+        with _lock:
+            _cache[path] = data
     else:
         _failed_at[path] = time.time()
     return data

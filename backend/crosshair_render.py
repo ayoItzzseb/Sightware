@@ -341,8 +341,6 @@ def _draw_crosshair_canvas(cv: tk.Canvas, cx: float, cy: float, cfg: dict) -> No
                        width=max(int(round(thickness)), 1), **topts)
         _canvas_dot(cv, cx, cy, c.get("dot", {}) or {})
         return
-        _canvas_dot(cv, cx, cy, c.get("dot", {}) or {})
-        return
 
     # cross — outline pass first (behind), then the fill pass
     up, down, left, right = (bool(x) for x in (list(lines) + [True] * 4)[:4])

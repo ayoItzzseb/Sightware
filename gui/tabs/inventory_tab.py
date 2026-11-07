@@ -133,10 +133,16 @@ class InventoryTab(tk.Frame):
                           sub=f"{wallet.get('rad', 0):,} Radianite · "
                               f"{wallet.get('kc', 0):,} KC")
         counts = data.get("counts") or {}
+
+        def _n(key):
+            # backend stores None on per-type fetch failure — don't render "None"
+            v = counts.get(key)
+            return "—" if v is None else v
+
         self.c_counts.set(
-            str(counts.get("skins", 0) + counts.get("earned", 0)),
-            sub=f"{counts.get('buddies', '—')} buddies · {counts.get('cards', '—')} cards · "
-                f"{counts.get('sprays', '—')} sprays · {counts.get('agents', '—')} agents")
+            str((counts.get("skins") or 0) + (counts.get("earned") or 0)),
+            sub=f"{_n('buddies')} buddies · {_n('cards')} cards · "
+                f"{_n('sprays')} sprays · {_n('agents')} agents")
         self.c_earned.set(str(counts.get("earned", 0)), sub="unpurchasable (earned)")
         self.updated_lbl.configure(
             text=("snapshot cached" if data.get("stale") else "up to date")

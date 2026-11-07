@@ -8,6 +8,7 @@ FINAL match scoreboard below. No page scrolling.
 """
 from __future__ import annotations
 
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -60,6 +61,8 @@ class LiveTab(tk.Frame):
         self.app = app
         self.core = app.core
         self._last_board: dict = {}
+        self._icon_subs: set[str] = set()   # URLs we already subscribed for
+        self._icon_subs_at = 0.0
 
         # page scroll ONLY when content overflows (tables no longer
         # hijack the wheel unless they overflow themselves)
@@ -249,7 +252,12 @@ class LiveTab(tk.Frame):
         cache = getattr(self.app, "art_cache", None)
         if not cache:
             return
-        pending = False
+        # re-allow subscriptions for still-missing URLs every minute, so a
+        # failed download can recover without re-subscribing every poll
+        now = time.time()
+        if now - self._icon_subs_at > 60:
+            self._icon_subs.clear()
+            self._icon_subs_at = now
         for row in rows:
             for key, target in (("rank", 22), ("agent", 26)):
                 url = (row.get("icons") or {}).get(key)
@@ -258,10 +266,12 @@ class LiveTab(tk.Frame):
                 photo = cache.get(url, target=target)
                 if photo:
                     row["icons"][key] = photo
-                else:
-                    pending = True
-                    cache.when_ready(url, lambda: self.after_idle(
-                        lambda: self._refresh_icons(table)))
+                    self._icon_subs.discard(url)
+                elif url not in self._icon_subs:
+                    self._icon_subs.add(url)
+                    cache.when_ready(url, lambda u=url, t=table: (
+                        self._icon_subs.discard(u),
+                        self.after_idle(lambda: self._refresh_icons(t))))
         # always repaint: on a warm cache the photos replaced the URLs
         # AFTER set_rows already drew the table
         table.redraw()

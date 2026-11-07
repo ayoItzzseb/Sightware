@@ -10,6 +10,9 @@ import uuid
 
 import encounter_log
 import history
+from sightwarelog import get_logger
+
+_LOG = get_logger("sessions")
 
 _DATA_DIR = os.environ.get("VALTIX_DATA_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 _PATH = os.path.join(_DATA_DIR, "sessions.json")
@@ -372,13 +375,14 @@ def observe(board: dict, lm) -> None:
                     pending = _STATE["pending"] = (pending + [snap])[-_MAX_PENDING:]
                 _STATE["ingame_board"] = board
             elif state == "PREGAME":
-                _STATE["recap"] = None
+                # recap survives agent select — attach() only shows it in MENUS
+                pass
             elif state == "MENUS" and _STATE["ingame_board"]:
                 pending = pending + [_STATE["ingame_board"]]
         for snap in pending:
             _finish(snap, lm, owner)
     except Exception:
-        pass
+        _LOG.exception("session observe failed")
 
 
 def _finish(snap: dict, lm, owner) -> None:
@@ -413,13 +417,16 @@ def _finish(snap: dict, lm, owner) -> None:
                     latest = _STATE.get("ingame_board") is snap
                     _drop_snapshot(snap)
                     if generation == _STATE["generation"]:
-                        if latest and _STATE.get("prev_state") != "PREGAME":
+                        # set unconditionally: prev_state is overwritten by
+                        # every poll while this worker sleeps/fetches, so
+                        # checking it here made the recap a coin flip.
+                        if latest:
                             _STATE["recap"] = recap
                             _STATE["recap_at"] = time.time()
                         if (recap.get("mode") or "").lower() == "competitive":
                             _push_session_point(recap)
             except Exception:
-                pass
+                _LOG.exception("recap finish worker failed")
             finally:
                 if not completed:
                     with _LOCK:
@@ -432,7 +439,7 @@ def _finish(snap: dict, lm, owner) -> None:
 
         threading.Thread(target=finish, daemon=True, name=f"recap-{str(match_id)[:8]}").start()
     except Exception:
-        pass
+        _LOG.exception("recap spawn failed")
 
 
 def current_recap() -> dict | None:

@@ -351,12 +351,17 @@ class PerformanceTab(tk.Frame):
         PlayerProfileDialog(self.app, puuid)
 
     def _error(self, err: str) -> None:
-        self.loading.configure(text=f"Failed to load: {err.splitlines()[-1]}")
+        # the label is unpacked after the first successful load — re-pack it,
+        # or later failures (e.g. account-switch errors) are invisible
+        self.loading.configure(text=f"Failed to load: {err.splitlines()[-1]}",
+                               fg=LOSS)
+        self.loading.pack(pady=24)
 
     def _apply(self, payload: dict) -> None:
         self._last_payload = payload
         if payload.get("error"):
-            self.loading.configure(text=payload["error"])
+            self.loading.configure(text=payload["error"], fg=LOSS)
+            self.loading.pack(pady=24)
             return
         self._loaded_once = True
         self._payload = payload

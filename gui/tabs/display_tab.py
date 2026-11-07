@@ -14,6 +14,7 @@ from tkinter import messagebox, ttk
 import display_engine as deng
 from ..theme import (AMBER, BG, BG_RAISED, BLUE, CARD, CARD_HI, LINE, RED,
                    RED_SOFT, TEAL, TEAL_DIM, TEXT, TEXT_DIM, TEXT_FAINT)
+from ..core import LOG
 from ..widgets import ScrollFrame, Switch, SightwareSlider, card, section_title
 
 REVERT_SECONDS = 15
@@ -48,6 +49,7 @@ class DisplayTab(tk.Frame):
         self._build_warmth(body)
         self._build_monitor_map(body)
         self._build_profiles(body)
+        self._build_auto_profiles(body)
 
         self.refresh_all()
 
@@ -307,8 +309,13 @@ class DisplayTab(tk.Frame):
     def _draw_auto_profiles(self):
         for w in self.auto_rows.winfo_children():
             w.destroy()
-        wl = [e.get("name", "") for e in self.engine.settings.get("whitelist", [])
-              if e.get("name")]
+        try:
+            import crosshair_store
+            wl = [e.get("name", "") for e in
+                  (crosshair_store.get_overlay_settings().get("whitelist") or [])
+                  if e.get("name")]
+        except Exception:
+            wl = []
         profiles = list(deng.read_profiles())
         self._auto_map = self._load_auto_map()
         if not wl or not profiles:
@@ -334,11 +341,16 @@ class DisplayTab(tk.Frame):
 
     def _load_auto_map(self):
         import json
+        cached = getattr(self, "_auto_map", None)
+        if cached is not None:
+            return cached
         try:
             with open(self._auto_map_file(), "r", encoding="utf-8") as f:
-                return json.load(f)
+                m = json.load(f)
         except Exception:
-            return {}
+            m = {}
+        self._auto_map = m
+        return m
 
     def _save_auto_map(self, name, profile):
         import json
@@ -347,6 +359,7 @@ class DisplayTab(tk.Frame):
             m[name] = profile
         else:
             m.pop(name, None)
+        self._auto_map = m
         try:
             with open(self._auto_map_file(), "w", encoding="utf-8") as f:
                 json.dump(m, f, indent=2)
@@ -355,31 +368,35 @@ class DisplayTab(tk.Frame):
 
     def _auto_poll(self):
         """Apply the mapped profile once when a mapped app gains focus."""
-        if not self.winfo_exists():
-            return
+        try:
+            self._auto_poll_tick()
+        except Exception:
+            # never let a tick kill the reschedule
+            LOG.exception("auto-profile poll failed")
+        if self.winfo_exists():
+            self._auto_timer = self.after(800, self._auto_poll)
+
+    def _auto_poll_tick(self):
         try:
             from crosshair_input import foreground_name
             title = foreground_name()
         except Exception:
             title = ""
+        m = self._load_auto_map()
         active = None
-        for name in self._load_auto_map():
+        for name in m:
             if name.casefold() in (title or "").casefold():
                 active = name
                 break
         if active and active != self._auto_last:
-            profile = self._load_auto_map().get(active)
+            profile = m.get(active)
             if profile:
-                try:
-                    cfg = deng.read_profiles().get(profile)
-                    if cfg:
-                        self._apply_profile_data(cfg)
-                        self.app.toast.show(f"Display profile '{profile}' applied.",
-                                            kind="ok")
-                except Exception as exc:
-                    print("auto profile failed:", exc)
+                cfg = deng.read_profiles().get(profile)
+                if cfg:
+                    self._apply_profile_data(cfg)
+                    self.app.toast.show(f"Display profile '{profile}' applied.",
+                                        kind="ok")
         self._auto_last = active
-        self._auto_timer = self.after(800, self._auto_poll)
 
     def _apply_profile_data(self, profile):
         """Resolution + vibrance + saturation without the dialog flow."""

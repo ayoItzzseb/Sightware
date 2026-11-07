@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 import time
 
@@ -23,34 +24,49 @@ BATCH = 10
 _RETRY_AFTER = 3600  # seconds before re-trying a match that failed
 
 
-def _load() -> dict:
+def _load() -> dict | None:
+    """None = unreadable (callers must not save over it); {} = no cache yet."""
     try:
         with open(_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except FileNotFoundError:
         return {}
+    except Exception:
+        return None
 
 
 def _save(data: dict) -> None:
     os.makedirs(os.path.dirname(_PATH), exist_ok=True)
-    tmp = _PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, _PATH)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(_PATH), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, _PATH)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def stats_for(match_id: str) -> dict | None:
     with _LOCK:
-        return (_load().get("matches") or {}).get(match_id)
+        return ((_load() or {}).get("matches") or {}).get(match_id)
 
 
 def aggregate(points: list[dict]) -> dict:
-    """Career aggregates over the matches that have cached deep stats."""
-    data = _load().get("matches") or {}
-    by_id = {p.get("matchId"): p for p in points or []}
+    """Career aggregates over the matches in the current window that have
+    cached deep stats. Iterates the points (one account's match list), not
+    the whole cache, so multi-account stores can't bleed across tabs."""
+    matches = (_load() or {}).get("matches") or {}
     rows = []
-    for mid, st in data.items():
-        p = by_id.get(mid) or {}
+    for p in points or []:
+        st = matches.get(p.get("matchId"))
+        if not st:
+            continue
         rows.append({
             "matchId": mid,
             "ts": p.get("ts") or st.get("ts"),
@@ -96,6 +112,11 @@ def enrich(core, points: list[dict], limit: int = BATCH, log=None,
     """Fetch deep stats for stored matches that lack them. Works only while
     the local Riot client can serve match details. Returns progress info."""
     data = _load()
+    if data is None:
+        # cache file unreadable (AV lock, disk issue) — abort instead of
+        # starting from {} and overwriting the whole store on the next save
+        return {"done": 0, "failed": 0, "remaining": len(points or []),
+                "cached": 0, "error": "career-stats cache unreadable"}
     matches = data.setdefault("matches", {})
     tries = data.setdefault("tries", {})
     now = time.time()
@@ -138,6 +159,6 @@ def enrich(core, points: list[dict], limit: int = BATCH, log=None,
         done += 1
         _save(data)  # incremental save so a crash never loses progress
     with _LOCK:
-        cached = len(_load().get("matches") or {})
+        cached = len((_load() or {}).get("matches") or {})
     return {"done": done, "failed": failed, "remaining": max(0, len(todo) - done),
             "cached": cached}

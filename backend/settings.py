@@ -71,13 +71,29 @@ def _coerce(key: str, value):
     return value if value is None or isinstance(value, type(default)) else default
 
 
+_CACHE: dict = {"mtime": None, "raw": {}}
+
+
 def _load_raw() -> dict:
+    """Parsed settings.json, cached and invalidated on file mtime change.
+    get()/all_settings() run several times per poll — re-reading the file
+    each time is wasteful disk churn."""
     try:
-        with open(_PATH, encoding="utf-8") as fh:
-            raw = json.load(fh)
-        return raw if isinstance(raw, dict) else {}
-    except Exception:
+        mtime = os.path.getmtime(_PATH)
+    except OSError:
         return {}
+    with _LOCK:
+        if _CACHE["mtime"] == mtime:
+            return _CACHE["raw"]
+        try:
+            with open(_PATH, encoding="utf-8") as fh:
+                raw = json.load(fh)
+            raw = raw if isinstance(raw, dict) else {}
+        except Exception:
+            raw = {}
+        _CACHE["mtime"] = mtime
+        _CACHE["raw"] = raw
+        return raw
 
 
 def _migrate(raw: dict) -> dict:

@@ -417,6 +417,16 @@ class MagnifierSaturation:
 
     def set_warmth(self, pct):
         """0 = neutral, 100 = warm (redder), -100..0 cool (bluer)."""
+        # same guards as set_percent: refuse a foreign desktop effect and
+        # verify nobody changed it under us before overwriting
+        if self.has_existing_effect:
+            raise OSError("A non-neutral Windows desktop color effect is already active. Disable it and restart Sightware before applying warmth.")
+        current = MAGCOLOREFFECT()
+        if not self.dll.MagGetFullscreenColorEffect(ctypes.byref(current)):
+            raise ctypes.WinError(ctypes.get_last_error(), "Could not verify the current desktop effect before updating warmth")
+        expected = self.applied_matrix if self.active else self.original.transform
+        if not self._matches(current.transform, expected):
+            raise OSError("Another color tool changed the Windows desktop effect. Sightware stopped live updates and left that effect untouched.")
         self.warmth = max(-100, min(100, int(pct)))
         self.percent = self.percent or 100
         matrix = self._combined()

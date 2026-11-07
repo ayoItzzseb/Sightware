@@ -281,7 +281,10 @@ def refresh(auth, timezone_name: str | None = None) -> str | None:
             _save()
     except Exception:
         with _LOCK:
-            _refresh_at.pop(puuid, None)
+            # keep the TTL stamp on failure: popping it lets the next
+            # performance() call respawn a refresh thread immediately,
+            # which on a persistent 429 becomes a spawn-fail loop
+            _refresh_at[puuid] = time.time()
             account = _ensure_account(puuid, timezone_name=timezone_name)
             account["backfillError"] = True
             _save()

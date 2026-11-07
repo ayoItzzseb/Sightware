@@ -66,8 +66,14 @@ class LogsTab(tk.Frame):
     def _log_files(self) -> list[Path]:
         if not self.log_dir.is_dir():
             return []
-        return sorted(self.log_dir.glob("*.log"), key=lambda p: p.stat().st_mtime,
-                      reverse=True)
+
+        def _mtime(p: Path) -> float:
+            # a rotating log can vanish between glob and stat
+            try:
+                return p.stat().st_mtime
+            except OSError:
+                return 0.0
+        return sorted(self.log_dir.glob("*.log"), key=_mtime, reverse=True)
 
     def _load(self) -> None:
         name = self.file_var.get()

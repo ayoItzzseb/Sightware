@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import assistant
 import encounter_log
@@ -380,20 +381,23 @@ class AppCore:
 
             season = lm.season_id()
             previous_season = lm.prev_season_id()
-            for teammate in encounter_log.get_all(owner)[:12]:
-                if (int(teammate.get("withCount") or 0)
-                        + int(teammate.get("againstCount") or 0) < 2):
-                    continue
+            teammates = [t for t in encounter_log.get_all(owner)[:12]
+                         if t.get("puuid")
+                         and (int(t.get("withCount") or 0)
+                              + int(t.get("againstCount") or 0) >= 2)]
+
+            def fetch_rank(teammate):
                 puuid = teammate.get("puuid")
-                if not puuid:
-                    continue
-                rank = lm.rank_info(puuid, season, previous_season)
+                try:
+                    rank = lm.rank_info(puuid, season, previous_season)
+                except Exception:
+                    return None
                 tier = int(rank.get("tier") or 0)
                 if tier <= 0:
-                    continue
+                    return None
                 current = rank_from_tier(tier)
                 peak = rank_from_tier(rank.get("peak") or tier)
-                encounter_log.enrich_player(owner, puuid, {
+                return puuid, {
                     "name": teammate.get("name"),
                     "rank": current["name"],
                     "peakRank": peak["name"],
@@ -401,7 +405,14 @@ class AppCore:
                     "peakTier": peak["tier"],
                     "rankColor": current["color"],
                     "winRate": rank.get("wr"),
-                })
+                }
+
+            # serial rank_info calls sat on the 0.4 rps MMR bucket and
+            # stretched the whole backfill — fan them out instead
+            with ThreadPoolExecutor(max_workers=min(4, len(teammates) or 1)) as ex:
+                for res in ex.map(fetch_rank, teammates):
+                    if res:
+                        encounter_log.enrich_player(owner, res[0], res[1])
         except Exception:
             self._encounter_backfill_at.pop(owner, None)
             LOG.exception("encounter history backfill failed")

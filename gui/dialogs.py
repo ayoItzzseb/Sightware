@@ -254,6 +254,8 @@ class SettingsDialog(_Dialog):
             return merged
 
         def done(_merged):
+            if not self.winfo_exists():
+                return
             self.app.toast.show("Settings saved — changes take effect "
                                 "immediately.", kind="ok")
             self.app.art_cache.clear_images_all()
@@ -375,6 +377,8 @@ class MatchDetailDialog(_Dialog):
             return app.core.match_detail(match_id, subject)
 
         def done(data):
+            if not self.winfo_exists():
+                return
             loading.destroy()
             if data.get("error"):
                 tk.Label(self, text=data["error"], bg=BG, fg=LOSS,
@@ -388,9 +392,14 @@ class MatchDetailDialog(_Dialog):
                 tk.Label(self, text="Render error: " + err.splitlines()[-1],
                          bg=BG, fg=LOSS, font=("Segoe UI", 9),
                          wraplength=800).pack(pady=20)
-        app.run_bg(work, done, on_error=lambda e: (loading.destroy(),
-                     tk.Label(self, text=f"Failed: {e.splitlines()[-1]}",
-                              bg=BG, fg=LOSS).pack(pady=20)))
+
+        def on_error(e):
+            if not self.winfo_exists():
+                return
+            loading.destroy()
+            tk.Label(self, text=f"Failed: {e.splitlines()[-1]}",
+                     bg=BG, fg=LOSS).pack(pady=20)
+        app.run_bg(work, done, on_error=on_error)
 
     def _render(self, data: dict) -> None:
         head = tk.Frame(self, bg=CARD, highlightbackground=LINE,
@@ -566,6 +575,8 @@ class MatchDetailDialog(_Dialog):
             return self.app.core.get_match_meta(self.match_id)
 
         def done(meta):
+            if not self.winfo_exists():
+                return
             self.note_var.set(meta.get("note") or "")
             self.tags_var.set(", ".join(meta.get("tags") or []))
             self.book_var.set(bool(meta.get("bookmarked")))
@@ -600,15 +611,22 @@ class PlayerProfileDialog(_Dialog):
             return app.core.player(puuid)
 
         def done(data):
+            if not self.winfo_exists():
+                return
             loading.destroy()
             if data.get("error"):
                 tk.Label(self, text=data["error"], bg=BG, fg=LOSS,
                          font=("Segoe UI", 10)).pack(pady=20)
                 return
             self._render(data)
-        app.run_bg(work, done, on_error=lambda e: (loading.destroy(),
-                     tk.Label(self, text=f"Failed: {e.splitlines()[-1]}",
-                              bg=BG, fg=LOSS).pack(pady=20)))
+
+        def on_error(e):
+            if not self.winfo_exists():
+                return
+            loading.destroy()
+            tk.Label(self, text=f"Failed: {e.splitlines()[-1]}",
+                     bg=BG, fg=LOSS).pack(pady=20)
+        app.run_bg(work, done, on_error=on_error)
 
     def _render(self, data: dict) -> None:
         head = tk.Frame(self, bg=CARD, highlightbackground=LINE,
@@ -717,10 +735,14 @@ class PlayerProfileDialog(_Dialog):
     def _open_match(self, data: dict) -> None:
         if data.get("matchId"):
             # always use the LOCAL player as subject so the Riot client
-            # returns complete match data; highlight the encounter player
-            import encounter_log
-            accounts = list(encounter_log._load().get("accounts", {}).keys())
-            local_puuid = accounts[0] if accounts else None
+            # returns complete match data; highlight the encounter player.
+            # Resolve it from the live client, not encounter_log dict order —
+            # with several recorded accounts accounts[0] may not be current.
+            local_puuid = self.app.core._current_puuid()
+            if not local_puuid:
+                import encounter_log
+                accounts = list(encounter_log._load().get("accounts", {}).keys())
+                local_puuid = accounts[0] if accounts else None
             MatchDetailDialog(self.app, data["matchId"], subject=local_puuid,
                               highlight_puuid=self.puuid)
 

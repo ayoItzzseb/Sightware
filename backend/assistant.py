@@ -148,20 +148,28 @@ def _observe_once() -> float:
     return POLL_ACTIVE_S
 
 
-def _run() -> None:
-    while not _STOP.is_set():
+_RUN_ID = 0
+
+
+def _run(run_id: int) -> None:
+    while _RUN_ID == run_id and not _STOP.is_set():
         delay = _observe_once()
         _STOP.wait(delay)
 
 
 def start() -> None:
-    global _THREAD
-    if _THREAD is not None and _THREAD.is_alive():
-        return
+    global _THREAD, _RUN_ID
+    # a new run id retires any previous thread without waiting for it —
+    # the old code bailed out while the old thread was still draining,
+    # leaving the assistant dead after an off→on settings toggle
+    _RUN_ID += 1
     _STOP.clear()
-    _THREAD = threading.Thread(target=_run, name="sightware-assistant", daemon=True)
+    _THREAD = threading.Thread(target=_run, args=(_RUN_ID,),
+                               name="sightware-assistant", daemon=True)
     _THREAD.start()
 
 
 def stop() -> None:
+    global _RUN_ID
+    _RUN_ID += 1
     _STOP.set()

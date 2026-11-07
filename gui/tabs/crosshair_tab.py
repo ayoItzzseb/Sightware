@@ -1580,7 +1580,11 @@ class PixelEditorDialog(tk.Toplevel):
         y = int(evt.y // self.cell)
         if not (0 <= x < self.SIZE and 0 <= y < self.SIZE):
             return
-        self._push_undo()
+        # one undo snapshot per stroke, not per pixel — a drag would
+        # otherwise flood the undo stack with copies of the whole grid
+        if not getattr(self, "_stroke_saved", True):
+            self._push_undo()
+            self._stroke_saved = True
         targets = [(x, y)]
         if self.mirror_x:
             targets.append((self.SIZE - 1 - x, y))
@@ -1600,6 +1604,7 @@ class PixelEditorDialog(tk.Toplevel):
 
     def _press(self, evt):
         self._drawing = True
+        self._stroke_saved = False
         self._paint(evt)
 
     def _drag(self, evt):

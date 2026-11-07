@@ -120,6 +120,10 @@ class GlobalInput:
 
     def stop(self) -> None:
         self._stop.set()
+        t = self._thread
+        if t is not None and t is not threading.current_thread():
+            t.join(timeout=1.0)
+        self._thread = None  # lets a later start() actually resume polling
 
     def begin_capture(self) -> None:
         self._capturing = True

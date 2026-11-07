@@ -1101,7 +1101,9 @@ class ImageCache:
         if not url:
             return
         with self._lock:
-            self._subscribers.setdefault(url, []).append(callback)
+            subs = self._subscribers.setdefault(url, [])
+            if len(subs) < 8:  # cap: repeated refreshes must not pile up
+                subs.append(callback)
 
     def _put(self, key: str, photo: tk.PhotoImage) -> None:
         with self._lock:
@@ -1132,6 +1134,10 @@ class ImageCache:
         except Exception:
             with self._lock:
                 self._inflight.discard(url)
+                # drop queued callbacks: the next refresh re-registers, and
+                # keeping them grew the list unboundedly for URLs that
+                # never resolve
+                self._subscribers.pop(url, None)
             return
         with self._lock:
             self._inflight.discard(url)

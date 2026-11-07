@@ -217,8 +217,15 @@ class SessionsTab(tk.Frame):
 
             def work():
                 return self.core.session_start(goal)
-            self.app.run_bg(work, lambda _r: (self.app.toast.show(
-                "Session started", kind="ok"), self.refresh()))
+
+            def done(r):
+                ok = r.get("ok")
+                self.app.toast.show(
+                    "Session started" if ok else (r.get("message") or
+                     "Couldn't start a session."),
+                    kind="ok" if ok else "warn")
+                self.refresh()
+            self.app.run_bg(work, done)
 
         ttk.Button(dlg, text="Start session", style="Accent.TButton",
                    command=confirm).pack(side="right", padx=18, pady=16)
@@ -226,8 +233,15 @@ class SessionsTab(tk.Frame):
     def _end_session(self) -> None:
         def work():
             return self.core.session_end()
-        self.app.run_bg(work, lambda r: (self.app.toast.show(
-            "Session ended", kind="ok"), self.refresh()))
+
+        def done(r):
+            ok = r.get("ok")
+            self.app.toast.show(
+                "Session ended" if ok else (r.get("message") or
+                 "No session is running."),
+                kind="ok" if ok else "warn")
+            self.refresh()
+        self.app.run_bg(work, done)
 
     def _delete_selected(self) -> None:
         if not self._selected:
