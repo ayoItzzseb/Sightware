@@ -539,7 +539,7 @@ class MatchDetailDialog(_Dialog):
             ], height=27 * max(1, len(rows)) + 34, row_h=27, zebra=True)
             table.set_rows(rows)
             table.pack(fill="x", padx=16)
-            cache = getattr(app, "art_cache", None)
+            cache = getattr(self.app, "art_cache", None)
             if cache:
                 for idx, row in enumerate(rows):
                     url = row["icons"].get("agent")
